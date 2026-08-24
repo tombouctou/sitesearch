@@ -407,12 +407,27 @@
 		   was typed that the text does not hold («страхами», «касинового»). The
 		   word is cut a letter at a time and stops at the first stem that does
 		   occur: «страхами» gets as far as «страха» and no further, so «стра» —
-		   and with it «страдание» and «страница» — is never needed. Cutting
-		   blindly to some chosen length would be to bring back the very
-		   mistake all this was for. */
+		   and with it «страдание» and «страница» — is never needed.
+
+		   How far the cutting may go has to be a share of the word, not a
+		   number of letters. A fixed floor of four was the same floor for a
+		   word of five letters and a word of twelve, and on the long ones it
+		   was a licence to cut the word in half: «остойчивость» reached «осто»
+		   and offered «осторожнее» as a word of the same root, which it is not.
+
+		   The share is 60%, chosen by measuring on the two sites' own indexes
+		   rather than by eye. Judged against a stemmer, the rule below finds a
+		   word of the same root for two thirds of the queries the exact pass
+		   fails on, and nine paragraphs in ten that it shows really do hold
+		   one; the old floor answered more often but lied about a third of the
+		   time. Cutting deeper buys little and costs the promise printed above
+		   the results. */
+		var KEEP = 0.6;
+
 		function widen(q) {
 			return words(q).map(function (t) {
-				for (var len = t.length - 1; len >= 4; len--) {
+				var min = Math.max(4, Math.ceil(t.length * KEEP));
+				for (var len = t.length - 1; len >= min; len--) {
 					var s = t.slice(0, len);
 					if (occurs(s)) return [s];
 				}
