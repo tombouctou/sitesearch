@@ -214,6 +214,12 @@ It counts what the site serves rather than what a builder once printed: a page
 reporting the build reports the build, and the question is what readers get.
 `shards` are followed, so naming one source shows the whole set.
 
+At the top stands a list of the indexes, each a link to its own section: one
+index runs to a screenful, and an index named in another's `shards` is not
+visible from the top of the page at all. The anchor is made from the address
+(`#i-dance-search-index-json`), so it survives a reload and can be sent to
+somebody.
+
 An index in two tiers is put back together whole first — every chunk fetched,
 several hundred requests and a megabyte or so. A reader fetches a handful; this
 page is not a reader, and what it is for is precisely the text it would

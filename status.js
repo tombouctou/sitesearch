@@ -355,8 +355,21 @@
 		return box;
 	}
 
+	// One name for an index, used by its heading and by the contents alike —
+	// a list whose wording differs from what it points at is a list you have
+	// to read twice.
+	function label(spec) {
+		return spec.section ? spec.section + ' — ' + spec.url : spec.url;
+	}
+
+	// An address makes a stable anchor, and a readable one: the same index
+	// keeps the same link from one reload to the next.
+	function anchorOf(url) {
+		return 'i-' + url.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase();
+	}
+
 	function report(box, spec, got, err) {
-		box.appendChild(el('h2', null, spec.section ? spec.section + ' — ' + spec.url : spec.url));
+		box.appendChild(el('h2', null, label(spec)));
 		if (err) {
 			box.appendChild(el('p', 'failed', 'не удалось получить: ' + err.message));
 			return null;
@@ -399,6 +412,18 @@
 		var note = el('p', 'note', 'Считается по указателям, как их отдаёт сайт прямо сейчас, — не по сборке.');
 		into.appendChild(note);
 
+		/* The contents. Indexes run to a screenful each — facts, sections, the
+		   largest pages, the complaints — and an index named in another's
+		   `shards` is not visible from the top of the page at all. The list is
+		   filled as the places are claimed, so it stands in the same order as
+		   what it points at, and it is there before the first index has
+		   arrived. */
+		var toc = el('nav', 'toc');
+		toc.appendChild(el('h2', null, 'Указатели'));
+		var list = el('ul');
+		toc.appendChild(list);
+		into.appendChild(toc);
+
 		var queue = (opts.sources || []).slice();
 		var seen = Object.create(null);
 		var done = [];
@@ -412,7 +437,13 @@
 			// otherwise the indexes line up in the order they happen to
 			// arrive, and the page reads differently on every reload.
 			var box = el('section', 'index');
+			box.id = anchorOf(spec.url);
 			into.appendChild(box);
+			var item = el('li');
+			var jump = el('a', null, label(spec));
+			jump.href = '#' + box.id;
+			item.appendChild(jump);
+			list.appendChild(item);
 			fetchIndex(spec).then(function (got) {
 				var r = report(box, spec, got, null);
 				if (r) {
@@ -424,7 +455,7 @@
 			}).catch(function (err) {
 				report(box, spec, null, err);
 			}).then(function () {
-				if (--pending === 0) { note.textContent += ' Готово.'; totals(into, note, done); }
+				if (--pending === 0) { note.textContent += ' Готово.'; totals(into, toc, done); }
 			});
 		}
 
