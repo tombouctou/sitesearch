@@ -61,15 +61,19 @@
 		};
 	}
 
-	// Fetch one index, preferring the pre-compressed sibling where the site
-	// has one, and say which of the two actually answered.
+	/* Fetch one index the way the engine fetches it: where the site keeps a
+	   pre-compressed copy, that one is asked for first and the plain file is
+	   the fallback. The fallback is worth reporting rather than hiding — a
+	   .br served without its content-encoding still leaves the search working
+	   and still means the host is misconfigured, and nothing else on the site
+	   would ever say so. */
 	function fetchIndex(spec) {
 		var started = Date.now();
 		function get(url) {
 			return fetch(url).then(function (r) {
 				if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
 				return r.text().then(function (text) {
-					return {
+					var got = {
 						url: url,
 						status: r.status,
 						type: r.headers.get('content-type') || '',
@@ -77,11 +81,20 @@
 						text: text,
 						ms: Date.now() - started,
 					};
+					got.data = JSON.parse(text);
+					return got;
 				});
 			});
 		}
 		if (!spec.precompressed) return get(spec.url);
-		return get(spec.url + '.br').catch(function () { return get(spec.url); });
+		return get(spec.url + '.br').catch(function (err) {
+			return get(spec.url).then(function (got) {
+				// JSON.parse names the offending bytes; they are noise here.
+				got.note = 'сжатая копия не подошла (' + String(err.message).split(',')[0] + '), взят обычный файл — ' +
+					'поиск работает, но лишний запрос делает каждый читатель';
+				return got;
+			});
+		});
 	}
 
 	// The blocks of a page, in the one shape the rest of this file expects.
@@ -279,14 +292,8 @@
 			box.appendChild(el('p', 'failed', 'не удалось получить: ' + err.message));
 			return null;
 		}
-		var data;
-		try {
-			data = JSON.parse(got.text);
-		} catch (e) {
-			box.appendChild(el('p', 'failed', 'получен, но это не JSON: ' + e.message));
-			return null;
-		}
-		var m = measure(data);
+		if (got.note) box.appendChild(el('p', 'failed', got.note));
+		var m = measure(got.data);
 		box.appendChild(facts(m, got, spec));
 		var st = sectionsTable(m);
 		if (st) { box.appendChild(el('h3', null, 'разделы')); box.appendChild(st); }
@@ -297,7 +304,7 @@
 		return { m: m, got: got, spec: spec };
 	}
 
-	function totals(into, done) {
+	function totals(into, after, done) {
 		if (done.length < 2) return;
 		var t = table('facts');
 		var pages = 0, blocks = 0, chars = 0, size = 0;
@@ -313,7 +320,7 @@
 		var box = el('section', 'index');
 		box.appendChild(el('h2', null, 'всего'));
 		box.appendChild(t);
-		into.insertBefore(box, into.firstChild);
+		into.insertBefore(box, after.nextSibling);
 	}
 
 	function mount(opts) {
@@ -338,14 +345,12 @@
 					done.push(r);
 					// An index may name others; the page follows them so that
 					// naming one source shows the whole set.
-					try {
-						(JSON.parse(got.text).shards || []).forEach(take);
-					} catch (e) { /* already reported above */ }
+					(got.data.shards || []).forEach(take);
 				}
 			}).catch(function (err) {
 				report(into, spec, null, err);
 			}).then(function () {
-				if (--pending === 0) { note.textContent += ' Готово.'; totals(into, done); }
+				if (--pending === 0) { note.textContent += ' Готово.'; totals(into, note, done); }
 			});
 		}
 
