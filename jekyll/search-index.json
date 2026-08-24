@@ -1,0 +1,81 @@
+---
+layout: null
+sitemap: false
+permalink: /search-index.json
+---
+{%- comment -%}
+Сборщик указателя для сайта на Jekyll.
+
+Собирает сам Jekyll при сборке сайта, поэтому указатель не может разойтись с
+текстом и не требует отдельного шага: ни npm, ни экшена, ни «не забыть
+пересобрать». Формат — общий (см. FORMAT.md), движок про Jekyll не знает.
+
+Единица — абзац исходника, то есть кусок между пустыми строками. Абзацы
+сгруппированы по странице, чтобы не повторять её адрес и заголовок у каждого.
+
+Резать по пустой строке в Liquid нечем, кроме как разметив концы строк через
+newline_to_br и разделив по паре «<br />». Пометки после этого снимаются: там,
+где пустых строк подряд было две, лишний «<br />» остаётся в начале куска, и
+markdown принимает его за начало абзаца — заголовок под ним перестаёт быть
+заголовком и уезжает в выдачу вместе с решётками.
+
+Разметку снимает markdownify: он превращает абзац в HTML, а strip_html — в
+голый текст. Делать это здесь, а не в браузере, — весь смысл общего формата:
+движок получает текст, а не чей-то исходник. Обратная сторона в том, что
+kramdown экранирует «&» и кавычки, поэтому пять сущностей приходится вернуть
+на место руками — регулярных выражений в Liquid нет. Уцелевшие «**» — тоже:
+в исходнике попадается «**слово **», для markdown это не выделение, и звёздочки
+он оставляет как есть.
+
+Пробелы схлопывает «split: ' ' | join: ' '»: в Ruby разбиение по одиночному
+пробелу — особый случай, режущий по любым цепочкам пробельного, переводы строк
+включая. Они там берутся не из воздуха: строка вида «← туда | сюда →» для
+kramdown — таблица, и strip_html оставляет от ячеек текст, разделённый
+переводом строки.
+
+Что настраивается — в _data/sitesearch.yml: названия разделов по первому
+сегменту адреса и их порядок в выдаче. Это про содержание сайта, а не про
+механику, и потому остаётся у сайта.
+
+Страницу можно исключить, поставив ей в front matter «search: false» — так
+исключают и саму страницу поиска. Отдельный служебный блок исключается классом
+nosearch. Крошки, листалка и оглавление страницы состоят из ссылок и в выдаче
+дают только шум; при этом одинаковыми они не бывают (в каждой свои названия
+соседних частей), так что отсеиванием повторов, которое умеет движок, их не
+убрать.
+
+В указатель идут только страницы .md. Просмотрщики и прочий .html — это свои
+стили и скрипты, их текст на девять десятых состоит из CSS и JS, и в выдаче от
+него один шум.
+{%- endcomment -%}
+{%- assign conf = site.data.sitesearch -%}
+{%- capture sep %}<br />
+<br />{% endcapture -%}
+{"pages":[
+{%- assign firstpage = true -%}
+{%- for p in site.pages -%}
+{%- unless p.path contains '.md' -%}{% continue %}{% endunless -%}
+{%- if p.search == false -%}{% continue %}{% endif -%}
+{%- if p.path contains 'sitesearch/' -%}{% continue %}{% endif -%}
+{%- assign parts = p.url | split: '/' -%}
+{%- assign seg = parts[1] -%}
+{%- assign sec = conf.sections[seg] -%}
+{%- assign sectitle = sec.title | default: conf.default.title -%}
+{%- assign secorder = sec.order | default: conf.default.order | default: 99 -%}
+{%- unless firstpage %},{% endunless -%}
+{%- assign firstpage = false -%}
+{"url":{{ p.url | jsonify }},"title":{{ p.title | default: p.url | jsonify }},"section":{{ sectitle | jsonify }},"order":{{ secorder }},"blocks":[
+{%- assign firstpara = true -%}
+{%- assign chunks = p.content | newline_to_br | split: sep -%}
+{%- for chunk in chunks -%}
+{%- if chunk contains 'nosearch' -%}{% continue %}{% endif -%}
+{%- assign text = chunk | replace: '<br />', '' | markdownify | strip_html | replace: '&amp;', '&' | replace: '&lt;', '<' | replace: '&gt;', '>' | replace: '&quot;', '"' | replace: '&#39;', "'" | replace: '**', '' | split: ' ' | join: ' ' -%}
+{%- if text.size > 16 -%}
+{%- unless firstpara %},{% endunless -%}
+{%- assign firstpara = false -%}
+{{ text | jsonify }}
+{%- endif -%}
+{%- endfor -%}
+]}
+{%- endfor -%}
+]}
