@@ -11,6 +11,7 @@ stays with the site.
 | file                        | what it does                                            |
 |-----------------------------|---------------------------------------------------------|
 | `search.js`                 | the engine, dropped into a search page                  |
+| `status.js`                 | reports the state of the indexes a site is serving      |
 | `FORMAT.md`                 | the index contract: the border between builder and engine |
 | `node/html.js`              | builder for an HTML tree: a page into pieces of text    |
 | `node/write.js`             | writes an index, pre-compressed copy and all            |
@@ -121,6 +122,30 @@ exclude:
   - sitesearch/node/
 ```
 
+## What state the indexes are in
+
+`status.js` is a second page, for the site's own eyes: it fetches the same
+indexes the search fetches and says what came back — size over the wire and
+unpacked, pages, paragraphs, how many carry an anchor, how the pages divide
+into sections, the largest of them, and what in the text does not look like
+text: a surviving tag, an entity, a markdown link, a paragraph repeated across
+pages, a page with no text at all.
+
+```html
+<div id="report"></div>
+<script src="/sitesearch/status.js"></script>
+<script>
+SiteSearchStatus.mount({
+    into: 'report',
+    sources: [{ url: '/search-index.json', precompressed: true }],
+});
+</script>
+```
+
+It counts what the site serves rather than what a builder once printed: a page
+reporting the build reports the build, and the question is what readers get.
+`shards` are followed, so naming one source shows the whole set.
+
 ## What the engine does with a query
 
 - Folds case, "ё" and diacritics: `samadhi` finds `samādhi`, `srngara` finds
@@ -134,8 +159,12 @@ exclude:
   sign, and never below three letters. The opposite case takes care of itself:
   a query matches a longer word in the text because the beginning agrees.
 - If the exact form is nowhere to be found, the word is cut a letter at a time
-  and stops at the first stem that does occur in the text. The status line says
-  plainly that what is shown shares a root rather than the form asked for.
+  and stops at the first stem that does occur in the text — but never below 60%
+  of the word. The status line says plainly that what is shown shares a root
+  rather than the form asked for, and that claim is what the share protects: a
+  fixed floor of four letters cut a twelve-letter word in half and called
+  whatever it landed on a relative. The 60% was measured over both sites'
+  indexes against a stemmer, not chosen by eye.
 - Several words: what is found has all of them.
 - The query lives in the address (`?q=`), so a link to a result set can be
   shared.
