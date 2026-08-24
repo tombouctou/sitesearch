@@ -226,8 +226,12 @@
 				n[b.text] = (n[b.text] || 0) + 1;
 			});
 		});
+		// A short block was never counted, so it has no tally — and it is kept.
+		// Comparing an absent tally against the threshold reads false and
+		// throws the block away: that is how this rule quietly ate every
+		// paragraph under sixty characters on the site it was written for.
 		docs.forEach(function (doc) {
-			doc.blocks = doc.blocks.filter(function (b) { return n[b.text] < threshold; });
+			doc.blocks = doc.blocks.filter(function (b) { return (n[b.text] || 0) < threshold; });
 		});
 		return docs;
 	}
