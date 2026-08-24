@@ -60,6 +60,13 @@ What is configurable lives in _data/sitesearch.yml: the names of the sections by
 the first segment of the address, and their order in the results. That is about
 the content of a site rather than the mechanics, and so stays with the site.
 
+The same file may name further indexes, under `shards`, and they are passed
+through to the engine as they stand. That is for the part of a site Jekyll does
+not build: a text that lives outside the repository, a page whose content sits
+in a JavaScript literal. Such an index is made beforehand by whatever suits it
+and lies ready as a file; naming it here rather than on the search page keeps
+what a site is made of in one place.
+
 A page can be left out with "search: false" in its front matter — that is how
 the search page itself is left out. A single piece of furniture is left out with
 the class nosearch. Breadcrumbs, the pager and a page's own table of contents
@@ -103,4 +110,8 @@ is nothing but noise to be had from it.
 {%- endfor -%}
 ]}
 {%- endfor -%}
-]}
+]
+{%- if conf.shards -%}
+,"shards":{{ conf.shards | jsonify }}
+{%- endif -%}
+}

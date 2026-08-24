@@ -112,6 +112,23 @@ The key is the first segment of the address. A page leaves the index with
 `search: false` in its front matter (that is how the search page itself stays
 out); a single block leaves with the class `nosearch`.
 
+The same file may name indexes Jekyll did not build, and they are passed to the
+engine as its `shards`:
+
+```yaml
+shards:
+  - url: /ship/search-index.json
+    section: Marchaj's book
+    order: 9
+    defer: true
+```
+
+That is for the part of a site Jekyll cannot reach: a text living outside the
+repository, a page whose content sits in a JavaScript literal. Such an index is
+made beforehand by whatever suits it and lies ready as a file. Naming it here
+rather than on the search page keeps what a site is made of in one place — the
+search page asks for one index and is given the rest.
+
 The rest of the submodule is no use to the site, and Jekyll should not know
 about it:
 
