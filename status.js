@@ -70,7 +70,11 @@
 	function fetchIndex(spec) {
 		var started = Date.now();
 		function get(url) {
-			return fetch(url).then(function (r) {
+			// Never from the cache. The question this page answers is what the
+			// site is handing out now, and a cached copy answers what it was
+			// handing out at some past hour — which is worse than no answer,
+			// because it looks like one.
+			return fetch(url, { cache: 'reload' }).then(function (r) {
 				if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
 				return r.text().then(function (text) {
 					var got = {
