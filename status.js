@@ -284,9 +284,7 @@
 		return box;
 	}
 
-	function report(into, spec, got, err) {
-		var box = el('section', 'index');
-		into.appendChild(box);
+	function report(box, spec, got, err) {
 		box.appendChild(el('h2', null, spec.section ? spec.section + ' — ' + spec.url : spec.url));
 		if (err) {
 			box.appendChild(el('p', 'failed', 'не удалось получить: ' + err.message));
@@ -339,8 +337,13 @@
 			if (!spec || !spec.url || seen[spec.url]) return;
 			seen[spec.url] = 1;
 			pending++;
+			// The place for this index is claimed now, before it is fetched:
+			// otherwise the indexes line up in the order they happen to
+			// arrive, and the page reads differently on every reload.
+			var box = el('section', 'index');
+			into.appendChild(box);
 			fetchIndex(spec).then(function (got) {
-				var r = report(into, spec, got, null);
+				var r = report(box, spec, got, null);
 				if (r) {
 					done.push(r);
 					// An index may name others; the page follows them so that
@@ -348,7 +351,7 @@
 					(got.data.shards || []).forEach(take);
 				}
 			}).catch(function (err) {
-				report(into, spec, null, err);
+				report(box, spec, null, err);
 			}).then(function () {
 				if (--pending === 0) { note.textContent += ' Готово.'; totals(into, note, done); }
 			});

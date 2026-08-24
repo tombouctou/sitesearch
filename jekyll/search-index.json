@@ -28,6 +28,18 @@ five entities have to be put back by hand — Liquid has no regular expressions.
 Surviving "**" too: the source holds the occasional "**word **", which is not
 emphasis to markdown, and it leaves the asterisks as they stand.
 
+strip_html runs before markdownify as well as after, and that is not belt and
+braces. Jekyll hands over page.content already rendered for some pages —
+which ones depends on the order it happens to build them in — and a chunk cut
+out of finished HTML is a fragment: an open tag whose close went to the next
+chunk, the tail of a code block. Kramdown cannot parse a fragment, so it
+escapes it instead, strip_html then sees no tags at all, and putting the five
+entities back brings the markup out into the reader's results. Six per cent of
+the paragraphs of one index arrived that way. Stripping first leaves kramdown
+nothing to give up on. The cell separators are inserted twice for the same
+reason: once for a table that arrives as HTML, once for one that arrives as
+markdown.
+
 Table cells would be glued into one word by strip_html —
 "TermSanskritMeaning" — so each is given a separator beforehand (the closing
 bracket in the pattern is there so that "<th" does not catch "<thead" as well),
@@ -80,7 +92,7 @@ is nothing but noise to be had from it.
 {%- assign chunks = p.content | newline_to_br | split: sep -%}
 {%- for chunk in chunks -%}
 {%- if chunk contains 'nosearch' -%}{% continue %}{% endif -%}
-{%- assign text = chunk | replace: '<br />', '' | markdownify | replace: '<td>', ' · <td>' | replace: '<td ', ' · <td ' | replace: '<th>', ' · <th>' | replace: '<th ', ' · <th ' | strip_html | replace: '&amp;', '&' | replace: '&lt;', '<' | replace: '&gt;', '>' | replace: '&quot;', '"' | replace: '&#39;', "'" | replace: '**', '' | replace: '&nbsp;', ' ' | replace: ' ', ' ' | split: ' ' | join: ' ' | replace: '· · ', '· ' | replace: '· · ', '· ' -%}
+{%- assign text = chunk | replace: '<br />', '' | replace: '<td>', ' · <td>' | replace: '<td ', ' · <td ' | replace: '<th>', ' · <th>' | replace: '<th ', ' · <th ' | strip_html | markdownify | replace: '<td>', ' · <td>' | replace: '<td ', ' · <td ' | replace: '<th>', ' · <th>' | replace: '<th ', ' · <th ' | strip_html | replace: '&amp;', '&' | replace: '&lt;', '<' | replace: '&gt;', '>' | replace: '&quot;', '"' | replace: '&#39;', "'" | replace: '**', '' | replace: '&nbsp;', ' ' | replace: ' ', ' ' | split: ' ' | join: ' ' | replace: '· · ', '· ' | replace: '· · ', '· ' -%}
 {%- assign lead = text | slice: 0, 2 -%}
 {%- if lead == '· ' %}{% assign text = text | remove_first: '· ' %}{% endif -%}
 {%- if text.size > 16 -%}
