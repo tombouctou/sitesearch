@@ -4,59 +4,60 @@ sitemap: false
 permalink: /search-index.json
 ---
 {%- comment -%}
-Сборщик указателя для сайта на Jekyll.
+Index builder for a Jekyll site.
 
-Собирает сам Jekyll при сборке сайта, поэтому указатель не может разойтись с
-текстом и не требует отдельного шага: ни npm, ни экшена, ни «не забыть
-пересобрать». Формат — общий (см. FORMAT.md), движок про Jekyll не знает.
+Jekyll builds it as it builds the site, so the index cannot drift from the text
+and needs no separate step: no npm, no action, no remembering to rebuild. The
+format is the shared one (see FORMAT.md); the engine knows nothing of Jekyll.
 
-Единица — абзац исходника, то есть кусок между пустыми строками. Абзацы
-сгруппированы по странице, чтобы не повторять её адрес и заголовок у каждого.
+The unit is a paragraph of the source, that is, a piece between blank lines.
+Paragraphs are grouped by page so as not to repeat its address and title for
+each one.
 
-Резать по пустой строке в Liquid нечем, кроме как разметив концы строк через
-newline_to_br и разделив по паре «<br />». Пометки после этого снимаются: там,
-где пустых строк подряд было две, лишний «<br />» остаётся в начале куска, и
-markdown принимает его за начало абзаца — заголовок под ним перестаёт быть
-заголовком и уезжает в выдачу вместе с решётками.
+There is nothing in Liquid to cut on a blank line except to mark the line ends
+with newline_to_br and split on a pair of "<br />". The marks are taken off
+afterwards: wherever two blank lines met, a spare "<br />" is left at the head of
+a chunk, and markdown then takes it for the start of a paragraph — the heading
+below it stops being a heading and travels into the results hashes and all.
 
-Разметку снимает markdownify: он превращает абзац в HTML, а strip_html — в
-голый текст. Делать это здесь, а не в браузере, — весь смысл общего формата:
-движок получает текст, а не чей-то исходник. Обратная сторона в том, что
-kramdown экранирует «&» и кавычки, поэтому пять сущностей приходится вернуть
-на место руками — регулярных выражений в Liquid нет. Уцелевшие «**» — тоже:
-в исходнике попадается «**слово **», для markdown это не выделение, и звёздочки
-он оставляет как есть.
+Markup is stripped by markdownify, which turns a paragraph into HTML, and by
+strip_html, which turns that into bare text. Doing it here rather than in the
+browser is the whole point of a shared format: the engine receives text, not
+somebody's source. The price is that kramdown escapes "&" and the quotes, so
+five entities have to be put back by hand — Liquid has no regular expressions.
+Surviving "**" too: the source holds the occasional "**word **", which is not
+emphasis to markdown, and it leaves the asterisks as they stand.
 
-Ячейки таблицы strip_html склеил бы в одно слово — «ТерминСанскритЗначение», —
-поэтому перед ним каждая получает разделитель (закрывающая скобка в образце —
-чтобы «<th» не поймал заодно «<thead»); лишний, что встал перед первой,
-снимается в конце — но только если он и правда стоит в начале: remove_first
-режет первое попадание где угодно, а точка-разделитель в тексте живёт и сама
-(«Поиск по сайту · Базовые принципы»), и такую отнимать нельзя. Пустая ячейка
-оставляет два разделителя подряд — их сводит к одному пара проходов, больше
-двух пустых ячеек кряду в этих таблицах не бывает.
+Table cells would be glued into one word by strip_html —
+"TermSanskritMeaning" — so each is given a separator beforehand (the closing
+bracket in the pattern is there so that "<th" does not catch "<thead" as well),
+and the spare one that ends up before the first is taken off at the end — but
+only if it really does stand first: remove_first cuts the first match wherever
+it is, and a separator dot lives in the text on its own account
+("Search the site · First principles"), which must not be taken away. An empty
+cell leaves two separators in a row; a pair of passes reduces them to one, and
+more than two empty cells running do not occur in these tables.
 
-Пробелы схлопывает «split: ' ' | join: ' '»: в Ruby разбиение по одиночному
-пробелу — особый случай, режущий по любым цепочкам пробельного, переводы строк
-включая. Неразрывный пробел под это не подпадает — для Ruby он не пробельный, —
-и его приходится назвать отдельно; в исходниках им бывает набран целый отступ. Они там берутся не из воздуха: строка вида «← туда | сюда →» для
-kramdown — таблица, и strip_html оставляет от ячеек текст, разделённый
-переводом строки.
+Whitespace is collapsed by "split: ' ' | join: ' '": in Ruby, splitting on a
+single space is the special case that cuts on any run of whitespace, newlines
+included. A non-breaking space does not fall under that — to Ruby it is not
+whitespace — and has to be named on its own; in these sources a whole indent is
+sometimes made of them.
 
-Что настраивается — в _data/sitesearch.yml: названия разделов по первому
-сегменту адреса и их порядок в выдаче. Это про содержание сайта, а не про
-механику, и потому остаётся у сайта.
+What is configurable lives in _data/sitesearch.yml: the names of the sections by
+the first segment of the address, and their order in the results. That is about
+the content of a site rather than the mechanics, and so stays with the site.
 
-Страницу можно исключить, поставив ей в front matter «search: false» — так
-исключают и саму страницу поиска. Отдельный служебный блок исключается классом
-nosearch. Крошки, листалка и оглавление страницы состоят из ссылок и в выдаче
-дают только шум; при этом одинаковыми они не бывают (в каждой свои названия
-соседних частей), так что отсеиванием повторов, которое умеет движок, их не
-убрать.
+A page can be left out with "search: false" in its front matter — that is how
+the search page itself is left out. A single piece of furniture is left out with
+the class nosearch. Breadcrumbs, the pager and a page's own table of contents
+are made of links and give nothing but noise in the results; they are never
+identical, though (each carries the names of its own neighbours), so the
+repeat-dropping the engine can do will not remove them.
 
-В указатель идут только страницы .md. Просмотрщики и прочий .html — это свои
-стили и скрипты, их текст на девять десятых состоит из CSS и JS, и в выдаче от
-него один шум.
+Only .md pages go into the index. Viewers and other .html carry their own styles
+and scripts, nine tenths of their text is CSS and JS, and in the results there
+is nothing but noise to be had from it.
 {%- endcomment -%}
 {%- assign conf = site.data.sitesearch -%}
 {%- capture sep %}<br />

@@ -1,13 +1,13 @@
-// HTML → куски текста, из которых собирается указатель.
+// HTML into the pieces of text an index is made of.
 //
-// Ни одной зависимости и никакого разбора дерева: страницы статических сайтов
-// пишутся руками и годами, <p> и <li> в них сплошь и рядом не закрыты, а
-// настоящий парсер на таком либо падает, либо чинит разметку по-своему. Здесь
-// текст просто режется на куски по блочным тегам — этого для поиска довольно.
+// No dependencies and no tree parsing: static-site pages are written by hand
+// over years, <p> and <li> in them are routinely left unclosed, and a real
+// parser either chokes on that or repairs the markup its own way. Here the text
+// is simply cut into pieces on block-level tags, which is enough for a search.
 //
-// Что считать куском: абзац, пункт списка, строку таблицы. Заголовок над ними
-// не кусок, а подпись к тому, что за ним следует, и якорь, по которому туда
-// ведёт ссылка.
+// What counts as a piece: a paragraph, a list item, a table row. A heading is
+// not a piece but a label on what follows it, and the anchor a link reaches it
+// by.
 
 const ENTITIES = {
 	nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
@@ -30,39 +30,39 @@ function clean(s) {
 	return decode(s).replace(/\s+/g, ' ').trim();
 }
 
-// Фрагмент разметки → голый текст. Для заголовков и прочих мест, где резать
-// на куски нечего.
+// A fragment of markup into bare text. For headings and anywhere else there is
+// nothing to cut up.
 function text(html) {
 	return clean(html.replace(/<[^>]*>/g, ' '));
 }
 
-// Теги, на которых кончается набранный кусок. Закрывающего тега не ждём: см.
-// про незакрытые <p> выше — кусок кончается на следующем блочном теге, в
-// какую бы сторону тот ни смотрел.
+// Tags that end whatever piece was being collected. No closing tag is waited
+// for: see the unclosed <p> above — a piece ends at the next block-level tag,
+// whichever way that tag happens to face.
 const BREAKS = /^(p|li|ul|ol|dl|dt|dd|div|table|tr|br|hr|h[1-6]|blockquote|pre|form|section|article|nav|footer)$/;
 
-// Строка таблицы — одна запись. Словарь держит термин, его пали, его санскрит
-// и толкование в разных ячейках, и ячейка сама по себе («dhamma») — находка,
-// которую невозможно прочесть. Ячейки поэтому склеиваются, а не разделяются.
+// A table row is one entry. A glossary keeps a term, its Pali, its Sanskrit and
+// its gloss in separate cells, and a cell on its own ("dhamma") is a result
+// nobody can read. Cells are therefore joined rather than split.
 const CELLS = /^(td|th)$/;
 
 const HEADING = /^h([1-6])$/;
 
-// Тело страницы кусками: текст одного абзаца или пункта, заголовок раздела над
-// ним и ближайший якорь, по которому туда ведёт ссылка.
+// A page's body in pieces: the text of one paragraph or list item, the section
+// heading above it, and the nearest anchor a link can reach it by.
 function blocks(html) {
 	const out = [];
 	let buf = '';
-	let anchor = null;        // действует для набираемого куска
-	let nextAnchor = null;    // встретился после последнего сброса, годится для следующего
+	let anchor = null;        // in effect for the piece being collected
+	let nextAnchor = null;    // seen since the last flush, applies to what follows
 	let section = null;
-	let heading = 0;          // уровень набираемого заголовка, 0 — не заголовок
+	let heading = 0;          // heading level being collected, 0 if none
 
 	function flush() {
 		const t = clean(buf).replace(/(\s*·\s*)+/g, ' · ').replace(/^ ?· | ?· ?$/g, '').trim();
 		buf = '';
 		if (heading) {
-			// Заголовок называет раздел, который за ним идёт, и даёт ему якорь.
+			// A heading names the section that follows and gives it an anchor.
 			if (t) section = t;
 			anchor = nextAnchor !== null ? nextAnchor : anchor;
 			heading = 0;
@@ -82,7 +82,7 @@ function blocks(html) {
 		const attrs = m[2] || '';
 		const closing = m[0][1] === '/';
 
-		// Любой id, и старый <a name="...">, — это куда сослаться.
+		// Any id, and the old-style <a name="...">, is somewhere to link to.
 		const id = attrs.match(/\bid\s*=\s*"([^"]+)"/i) || (name === 'a' && attrs.match(/\bname\s*=\s*"([^"]+)"/i));
 		if (id && !closing) nextAnchor = id[1];
 
@@ -98,10 +98,11 @@ function blocks(html) {
 	return out;
 }
 
-// Всё между <body> и </body>, без того, что читателю не показывают вовсе.
-// Обвязка самого сайта — «#» у каждого абзаца, подвал, список меток —
-// у каждого сайта своя, поэтому её образцы передаёт сборщик: здесь нет
-// способа отличить её от текста, и гадать не надо.
+// Everything between <body> and </body>, minus what the reader is never shown.
+// A site's own furniture — the "#" beside every paragraph, the footer, the tag
+// list — differs from site to site, so the builder passes its patterns in:
+// there is nothing here that could tell it apart from the text, and guessing is
+// not called for.
 function body(html, strip = []) {
 	let s = html
 		.replace(/<!--[\s\S]*?-->/g, '')

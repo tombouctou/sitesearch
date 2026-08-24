@@ -1,44 +1,47 @@
-/* Поиск по статическому сайту, целиком в браузере.
+/* Search a static site, entirely in the browser.
  *
- * Страница даёт полю ввода, строке состояния и списку находок их узлы и
- * перечисляет указатели, по которым искать:
+ * A page hands over the nodes for the search box, the status line and the list
+ * of results, and names the indexes to search:
  *
  *     SiteSearch.mount({
  *         input: 'q', status: 'status', results: 'results',
  *         sources: [{ url: '/search-index.json' }],
  *     });
  *
- * Указатель — статический JSON, собранный заранее; его договор описан в
- * FORMAT.md и одинаков для всех сборщиков. Откуда взялся текст — из дерева
- * HTML, из страниц Jekyll, из чего-то третьего, — здесь неизвестно и не
- * нужно: страница, её имя, куски текста на ней.
+ * An index is static JSON, built beforehand; its contract is in FORMAT.md and
+ * is the same for every builder. Where the text came from — an HTML tree,
+ * Jekyll pages, something else again — is unknown here and not wanted: a page,
+ * its name, the pieces of text on it.
  *
- * Указатель может назвать в своём `shards` другие указатели, которые надо
- * искать вместе с ним, — так состав сайта задаёт сборщик, а не переписывает
- * каждая страница поиска. Источник с `defer` не запрашивается, пока никто не
- * ищет: мегабайт книги незачем везти тому, кто зашёл мимоходом.
+ * An index may name further indexes in its own `shards`, to be searched
+ * alongside it — so the builder decides what the site is made of rather than
+ * every search page restating it. A source marked `defer` is not fetched until
+ * somebody searches: a megabyte of book has no business travelling to someone
+ * who is only passing through.
  *
- * Порядок находок — `order` источника и страницы, а внутри страницы порядок
- * блоков. Релевантность здесь не считается: на сайте такого размера порядок
- * полок полезнее догадки о том, какой абзац лучше.
+ * Results come in the order given by the `order` of the source and the page,
+ * and within a page by the order of its blocks. Nothing here scores relevance:
+ * on a site this size the order of the shelves is more useful than a guess at
+ * which paragraph is the best one.
  */
 (function (global) {
 	'use strict';
 
-	/* Диакритику сворачиваем с обеих сторон: ищущий наберёт «rangapuja»,
-	   а в тексте стоит «raṅgapūjā». NFD разбивает букву на основу и
-	   знак, знак выбрасываем. Длина строки при этом не меняется —
-	   на ней держится подсветка совпадений, — потому что каждый
-	   составной знак даёт ровно одну основу. */
+	/* Diacritics are folded on both sides: the searcher types "rangapuja"
+	   where the text has "raṅgapūjā". NFD splits a letter into a base and a
+	   mark, and the mark is thrown away. The length of the string does not
+	   change — the highlighting of matches rests on that — because every
+	   composed sign yields exactly one base. */
 	function norm(s) {
 		return s.toLowerCase()
 			.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 			.replace(/ё/g, 'е');
 	}
 
-	/* Совпадение начинается там, где начинается слово. Иначе «страх»
-	   укорачивается до «стра» и вытаскивает «от·стра·нение» — на тексте книги
-	   это было сто лишних абзацев из двухсот сорока. */
+	/* A match begins where a word begins. Otherwise «страх» (fear) is
+	   shortened to a stem that also sits inside «от·стра·нение»
+	   (detachment) — on the text of a book that was a hundred paragraphs of
+	   rubbish out of two hundred and forty. */
 	var LETTER = /[a-zа-я0-9]/;
 
 	function occurrence(haystack, t, from) {
@@ -50,24 +53,24 @@
 		return -1;
 	}
 
-	/* Русский меняет окончания, и «тело» обязано находить «тела». Половину
-	   работы делает само совпадение с начала слова: когда в тексте букв
-	   больше, чем в запросе, искать нечего — «джхана» и так найдёт
-	   «джханами». Остаётся обратный случай, когда лишние буквы в запросе, а
-	   в русском это конечная гласная или мягкий знак: «тело» должно потерять
-	   «о». Отсюда короткая лесенка — слово, затем до двух срезанных
-	   окончаний, но не короче трёх букв.
+	/* Russian changes its endings, and «тело» has to find «тела». Half the
+	   work is done by matching from the start of a word: when the text has more
+	   letters than the query there is nothing to do — «джхана» already finds
+	   «джханами». What is left is the opposite case, the spare letters being in
+	   the query, and in Russian that means a trailing vowel or a soft sign:
+	   «тело» must lose its «о». Hence a short ladder — the word, then up to two
+	   endings cut off, but never below three letters.
 
-	   Резать глубже — ровно то, что движок делал раньше (четыре буквы с
-	   любого слова), и ровно то, из-за чего «страх» находил «страдание».
-	   Заодно видно, почему не годится и список окончаний: «страх»
-	   заканчивается на «ах» и был бы обрезан до «стр». */
+	   Cutting deeper is exactly what this engine used to do (four letters off
+	   any word), and exactly why «страх» (fear) used to find «страдание»
+	   (suffering). It also shows why a list of endings will not serve: «страх»
+	   ends in «ах» and would be cut back to «стр». */
 	var SOFT = /[аеиоуыэюяьий]$/;
 	var PLURAL = /[a-z]{4,}s$/;
 
 	function ladder(t) {
 		var v = [t];
-		// В английском той же цели хватает одного «s».
+		// In English one "s" serves the same purpose.
 		if (PLURAL.test(t)) { v.push(t.slice(0, -1)); return v; }
 		var s = t;
 		for (var i = 0; i < 2 && s.length > 3 && SOFT.test(s); i++) {
@@ -141,8 +144,8 @@
 			if (space !== -1 && space - start < 20) start = space + 1;
 		}
 		var end = Math.min(text.length, start + WINDOW);
-		// И на правом краю тоже: слово, попавшее на границу окна, иначе
-		// подсвечивается огрызком — «джх» вместо «джханы».
+		// And at the right edge too: a word caught on the window's boundary
+		// would otherwise be highlighted as a stub — «джх» for «джханы».
 		while (end < text.length && LETTER.test(hay.charAt(end))) end++;
 
 		var cursor = start;
@@ -151,9 +154,9 @@
 		spans.forEach(function (s) {
 			if (s[1] <= cursor || s[0] >= end) return;
 			if (s[0] > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, s[0])));
-			// Два слова запроса могут накрыть одно слово текста; тогда второе
-			// начинается раньше, чем кончилось первое, и повторять уже
-			// выведенное нельзя.
+			// Two words of the query can cover one word of the text; the second
+			// then begins before the first has ended, and what is already
+			// written must not be written again.
 			var m = document.createElement('mark');
 			m.textContent = text.slice(Math.max(s[0], cursor), Math.min(s[1], end));
 			frag.appendChild(m);
@@ -173,23 +176,24 @@
 		return many;
 	}
 
-	/* Единица указателя — страница: адрес, имя и куски текста на ней. Блок,
-	   у которого нет ни якоря, ни заголовка над ним, можно писать просто
-	   строкой — так короче, и сборщику на Liquid не приходится городить
-	   скобки. Всё остальное движок про источник не знает: дерево HTML,
-	   страницы Jekyll и что угодно ещё приходят сюда одинаковыми.
+	/* The unit of an index is a page: its address, its name, and the pieces of
+	   text on it. A block with neither an anchor nor a heading above it may be
+	   written as a plain string — shorter, and a Liquid template is spared a
+	   thicket of braces. Beyond that the engine knows nothing of the source: an
+	   HTML tree, Jekyll pages and anything else arrive here alike.
 
-	   `section` и `order` источник может назвать за всю пачку сразу — так
-	   страница поиска по книге подписывает все её главы «Глава», не трогая
-	   указатель. Порядок при этом остаётся за страницей, когда она его знает:
-	   разделы перечислены в сборщике, и спорить с ним неоткуда. */
+	   A source may name `section` and `order` for the whole batch at once —
+	   that is how a book's search page labels all its chapters "Chapter"
+	   without touching the index. Order still belongs to the page where the
+	   page knows it: sections are listed in the builder, and there is nothing
+	   here to argue with that. */
 	function documentsOf(data, spec) {
 		return (data.pages || []).map(function (p) {
 			return {
 				url: p.url,
 				title: p.title,
-				// Второе имя ищется наравне с первым: оглавление сокращает
-				// «3. Концентрация: второе упражнение» до «3. Концентрация».
+				// The second name is searched equally with the first: a table of
+				// contents shortens "3. Concentration: the second training".
 				also: p.also || null,
 				section: spec.section || p.section || null,
 				order: typeof p.order === 'number' ? p.order : (spec.order || 0),
@@ -200,19 +204,18 @@
 		});
 	}
 
-	/* Абзац, стоящий слово в слово на многих страницах, — это обвязка раздела,
-	   а не его содержание: врезка «как читать эти страницы», одно и то же
-	   оглавление. В выдаче он забивает настоящие попадания, повторяясь
-	   столько раз, на скольких страницах стоит.
+	/* A paragraph standing word for word on many pages is a section's
+	   furniture rather than its content: the "how to read these pages" aside,
+	   the same table of contents again. In the results it drowns out the real
+	   matches, repeating itself once for every page it stands on.
 
-	   Сборщик, который держит страницу целиком, срезает обвязку сам, по
-	   разметке (см. node/html.js). Сборщику на Liquid нечем: регулярных
-	   выражений там нет, а повторов он и подавно не считает. Тогда счёт
-	   поручается движку — `repeats: 4` выбросит блок, встреченный на четырёх
-	   страницах и более. Ниже четырёх опускать нельзя: два-три одинаковых
-	   абзаца вполне бывают и в настоящем тексте. По умолчанию правило
-	   выключено: где обвязку снял сборщик, лишний проход по указателю ни к
-	   чему. */
+	   A builder holding the whole page cuts furniture away itself, by the
+	   markup (see node/html.js). A Liquid builder has no means to: no regular
+	   expressions there, and certainly no counting of repeats. The counting is
+	   then left to the engine — `repeats: 4` drops a block met on four pages or
+	   more. Below four it must not go: two or three identical paragraphs happen
+	   in real text. The rule is off by default: where the builder cut the
+	   furniture away, walking the index again serves nothing. */
 	function dropRepeated(docs, threshold) {
 		var n = Object.create(null);
 		docs.forEach(function (doc) {
@@ -258,19 +261,20 @@
 			});
 		}
 
-		/* Рядом с указателем может лежать он же, сжатый заранее: те же данные
-		   втрое легче, чем сжатые на лету. Тогда источник помечен
-		   `precompressed`, и мы просим сначала «.br».
+		/* The same index may sit next to itself, compressed beforehand: the
+		   same data at a fraction of the weight of on-the-fly compression. The
+		   source is then marked `precompressed`, and the ".br" is asked for
+		   first.
 
-		   Хостинг при этом обязан отдавать его с content-encoding: br (на
-		   Vercel это делается в vercel.json). Возврат к обычному файлу — не
-		   перестраховка: заголовок ставит хостинг, и если он однажды
-		   перестанет, браузер отдаст нам сырые байты brotli, r.json()
-		   споткнётся, и поиск обязан продолжить работать, а не онеметь.
+		   The host must serve it with content-encoding: br (on Vercel, through
+		   vercel.json). Falling back to the plain file is not belt and braces:
+		   the header is the host's to set, and should it ever stop, the browser
+		   would hand us raw brotli bytes, r.json() would trip over them, and
+		   the search has to keep working rather than fall silent.
 
-		   Там, где сжатой копии нет — GitHub Pages жмёт сам и положить её
-		   рядом некуда, — просить её незачем: это лишний запрос и лишний 404
-		   в консоли на каждый указатель. */
+		   Where there is no compressed copy — GitHub Pages compresses on its
+		   own and there is nowhere to put one — asking for it is pointless: a
+		   wasted request and a 404 in the console for every index. */
 		function index(spec) {
 			if (!spec.precompressed) return json(spec.url);
 			return json(spec.url + '.br').catch(function () { return json(spec.url); });
@@ -347,10 +351,11 @@
 			el.snippet.appendChild(snippet(block.text, ts));
 		}
 
-		/* Свёрнутый текст считается один раз на блок и запоминается: он не
-		   меняется, а гонять NFD по полумегабайту на каждое нажатие клавиши —
-		   работа впустую. Заголовок раздела складывается с абзацем здесь же:
-		   искать надо и по нему, а показывать всё равно абзац. */
+		/* The folded text is computed once per block and kept: it does not
+		   change, and running NFD over half a megabyte on every keystroke is
+		   work for nothing. The section heading is joined to the paragraph
+		   right here: it has to be searched too, while what is shown is still
+		   the paragraph. */
 		function folded(b) {
 			if (b.fold === undefined) b.fold = norm((b.section || '') + ' ' + b.text);
 			return b.fold;
@@ -361,15 +366,15 @@
 			return doc.fold;
 		}
 
-		// Наполняет список и говорит, сколько нашлось. Вызывается второй раз с
-		// расширенным запросом, когда первый проход пуст.
+		// Fills the list and reports how much was found. Called a second time
+		// with a widened query when the first pass comes back empty.
 		function collect(ts) {
 			results.textContent = '';
 			var found = 0, shown = 0;
 
 			documents().forEach(function (doc) {
 				// A page whose name matches is itself a result — otherwise
-				// searching "индрии" finds nothing on a chapter that keeps
+				// searching «индрии» finds nothing on a chapter that keeps
 				// the word in its heading alone.
 				if (matches(foldedTitle(doc), ts)) {
 					found++;
@@ -390,7 +395,7 @@
 			return { found: found, shown: shown };
 		}
 
-		// Встречается ли такое начало слова хоть где-нибудь.
+		// Does such a beginning of a word occur anywhere at all.
 		function occurs(t) {
 			return documents().some(function (doc) {
 				if (occurrence(foldedTitle(doc), t, 0) !== -1) return true;
@@ -398,13 +403,13 @@
 			});
 		}
 
-		/* Запасное правило: точное не нашло ничего — значит, набрали форму,
-		   которой в тексте нет («страхами», «касинового»). Отрезаем от слова
-		   по букве и останавливаемся на первой, которая вообще встречается:
-		   «страхами» доходит до «страха» и дальше не идёт, так что «стра» —
-		   а с ним «страдание» и «страница» — не понадобится. Отрезать вслепую
-		   до заранее выбранной длины и значило бы вернуть ту самую ошибку,
-		   ради которой всё затевалось. */
+		/* The fallback rule: the exact pass found nothing, which means a form
+		   was typed that the text does not hold («страхами», «касинового»). The
+		   word is cut a letter at a time and stops at the first stem that does
+		   occur: «страхами» gets as far as «страха» and no further, so «стра» —
+		   and with it «страдание» and «страница» — is never needed. Cutting
+		   blindly to some chosen length would be to bring back the very
+		   mistake all this was for. */
 		function widen(q) {
 			return words(q).map(function (t) {
 				for (var len = t.length - 1; len >= 4; len--) {
@@ -432,9 +437,9 @@
 
 			var r = collect(terms(q));
 			var widened = false;
-			// Пусто — скорее всего набрали форму, до которой точное правило не
-			// достаёт. Пока указатель ещё едет, «пусто» означает всего лишь
-			// «ещё не приехало», и торопиться незачем.
+			// Empty most likely means a form the exact rule cannot reach. While
+			// an index is still on its way, "empty" only means "not here yet",
+			// and there is no cause to hurry.
 			if (!r.found && !loading) {
 				var wide = collect(widen(q));
 				if (wide.found) { r = wide; widened = true; }
@@ -446,8 +451,8 @@
 				: (loading ? '' : 'Ничего не нашлось.');
 			if (found > shown) say += ', показаны первые ' + shown;
 			if (widened) say += (say ? ' · ' : '') + 'точной формы в тексте нет, это однокоренные слова';
-			// Пока не пришёл ни один указатель, искать нечем; когда часть уже
-			// на руках, находки показаны, а остальное подгружается.
+			// Until some index has arrived there is nothing to search; once part
+			// of it is in hand, its results are shown while the rest loads.
 			if (loading) say += (say ? ' · ' : '') + (ready ? 'ищу дальше…' : 'Загружаю указатель…');
 			if (broken.length) {
 				say += (say ? ' · ' : '') + 'не удалось загрузить указатель' +

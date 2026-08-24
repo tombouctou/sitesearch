@@ -1,14 +1,15 @@
-// Запись указателя на диск.
+// Writing an index to disk.
 //
-// Пишем дважды: как есть и сжатым заранее. Сжать один раз при сборке дешевле,
-// чем на каждом запросе: хостинг жмёт на лету быстрым уровнем, brotli -q 11
-// даёт тех же данных заметно меньше. Отдавать «.br» браузеру как JSON должен
-// хостинг (на Vercel — заголовками в vercel.json); страница поиска просит
-// сжатую копию, только если источник помечен `precompressed`, и при неудаче
-// возвращается к обычному файлу.
+// Written twice: as it stands, and pre-compressed. Compressing once at build
+// time is cheaper than on every request — a host compresses on the fly at a
+// fast level, whereas brotli -q 11 makes the same data markedly smaller.
+// Serving the ".br" to a browser as JSON is the host's job (on Vercel, through
+// headers in vercel.json); the search page asks for the compressed copy only
+// when the source is marked `precompressed`, and falls back to the plain file
+// if that fails.
 //
-// Там, где положить файл рядом некуда — GitHub Pages жмёт сам, — сжатая копия
-// не нужна: `brotli: false`.
+// Where there is nowhere to put the file — GitHub Pages compresses on its own —
+// the compressed copy is not wanted: `brotli: false`.
 
 const fs = require('fs');
 const zlib = require('zlib');

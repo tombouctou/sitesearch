@@ -1,34 +1,35 @@
 # sitesearch
 
-Поиск по статическому сайту, целиком в браузере: ни сервера, ни индексирующей
-службы, ни зависимостей. Один файл указателя приезжает к читателю, дальше
-поиск не грузит ничего.
+Search a static site entirely in the browser: no server, no indexing service,
+no dependencies. One index file reaches the reader, and after that the search
+fetches nothing at all.
 
-Здесь лежит то, что у всех сайтов одинаково, — движок и сборщики; то, что у
-каждого своё, — разделы, их порядок, что считать страницей, — остаётся у сайта.
+What every site does the same way lives here — the engine and the builders.
+What each site does its own way — sections, their order, what counts as a page —
+stays with the site.
 
-| файл                        | что делает                                              |
+| file                        | what it does                                            |
 |-----------------------------|---------------------------------------------------------|
-| `search.js`                 | движок: подключается к странице поиска                   |
-| `FORMAT.md`                 | договор об указателе — граница между сборщиком и движком |
-| `node/html.js`              | сборщик по дереву HTML: страница → куски текста          |
-| `node/write.js`             | запись указателя, вместе со сжатой заранее копией        |
-| `jekyll/search-index.json`  | сборщик для Jekyll: указатель собирает сам Jekyll        |
+| `search.js`                 | the engine, dropped into a search page                  |
+| `FORMAT.md`                 | the index contract: the border between builder and engine |
+| `node/html.js`              | builder for an HTML tree: a page into pieces of text    |
+| `node/write.js`             | writes an index, pre-compressed copy and all            |
+| `jekyll/search-index.json`  | builder for Jekyll: the index is built by Jekyll itself |
 
-## Подключение
+## Attaching it
 
-Сабмодулем, а не копией: так версия, которая уехала в прод, записана в git, а
-не в том, когда последний раз запускали скрипт синхронизации.
+As a submodule, not a copy: that way the version which went to production is
+recorded in git rather than in whenever someone last ran a sync script.
 
 ```sh
 git submodule add https://github.com/tombouctou/sitesearch.git sitesearch
 ```
 
-В свежем клоне — `git submodule update --init`. Хостинг выкачивает сабмодуль
-сам: и GitHub Pages, и Vercel умеют это для публичного репозитория по https
-(по ssh — не умеет ни тот, ни другой).
+In a fresh clone, `git submodule update --init`. The host fetches the submodule
+on its own: GitHub Pages and Vercel both do so for a public repository over
+https (neither does over ssh).
 
-Страница поиска даёт движку три узла и перечисляет указатели:
+A search page hands the engine three nodes and names the indexes to search:
 
 ```html
 <input id="q" type="search" />
@@ -44,35 +45,37 @@ SiteSearch.mount({
 </script>
 ```
 
-Оформление — на стороне сайта: движок ставит `<li>` с `.where` и `.snippet`
-внутри и подсвечивает найденное через `<mark>`, а как это выглядит, решает
-таблица стилей сайта.
+Looks are the site's business: the engine appends an `<li>` holding `.where`
+and `.snippet`, and highlights what it found with `<mark>`. How that reads is
+for the site's stylesheet to say.
 
 ### `mount()`
 
-| поле           | что делает                                                                  |
-|----------------|------------------------------------------------------------------------------|
-| `input`        | поле ввода: id или сам узел                                                  |
-| `status`       | узел под строку состояния                                                    |
-| `results`      | узел под список находок                                                      |
-| `sources`      | указатели, с которых начать; остальные придут из их `shards`                 |
-| `showSection`  | `false` — не повторять раздел над каждой находкой (поиск внутри одной книги) |
-| `repeats`      | `4` — выбросить абзац, стоящий слово в слово на четырёх страницах и более    |
+| field          | what it does                                                             |
+|----------------|--------------------------------------------------------------------------|
+| `input`        | the search box: an id or the node itself                                 |
+| `status`       | node for the status line                                                 |
+| `results`      | node for the list of results                                             |
+| `sources`      | indexes to start from; the rest arrive through their `shards`            |
+| `showSection`  | `false` — don't repeat the section over every result (search inside one book) |
+| `repeats`      | `4` — drop a paragraph standing word for word on four pages or more      |
 
-`repeats` нужен там, где сборщик обвязку страниц не срезает: у Jekyll нет ни
-регулярных выражений, ни способа сосчитать повторы. Где срезает — правило
-только зря ходит по указателю, поэтому по умолчанию оно выключено.
+`repeats` is for indexes whose builder does not cut page furniture away:
+Jekyll has neither regular expressions nor a way to count repeats. Where the
+builder does cut it, the rule would only walk the index for nothing, so it is
+off by default.
 
-## Сборка указателя
+## Building an index
 
-Вход у сборщиков разный, выход один — тот, что описан в `FORMAT.md`.
+The builders take different input; the output is the one described in
+`FORMAT.md`.
 
-### Дерево HTML (Node)
+### An HTML tree (Node)
 
-`node/html.js` режет страницу на куски по блочным тегам, не пытаясь построить
-дерево: страницы статических сайтов пишутся руками и годами, `<p>` и `<li>` в
-них сплошь и рядом не закрыты, и настоящий парсер на таком либо падает, либо
-чинит разметку по-своему.
+`node/html.js` cuts a page into pieces on block-level tags without trying to
+build a tree. Static-site pages are written by hand over years, `<p>` and `<li>`
+in them are routinely left unclosed, and a real parser either chokes on that or
+repairs the markup its own way.
 
 ```js
 const { body, blocks } = require('./sitesearch/node/html.js');
@@ -82,32 +85,34 @@ const inner = body(html, [/<a class="ph"[^>]*>[\s\S]*?<\/a>/g]);
 writeIndex('search-index.json', { pages: [{ url, title, blocks: blocks(inner) }] });
 ```
 
-Второй аргумент `body()` — образцы обвязки самого сайта: «#» у каждого абзаца,
-подвал, список меток. Отличить её от текста здесь нечем, и гадать не надо.
+The second argument to `body()` is the site's own furniture: the "#" beside
+every paragraph, the footer, the tag list. There is nothing here that could
+tell it apart from the text, and guessing is not called for.
 
-### Страницы Jekyll (Liquid)
+### Jekyll pages (Liquid)
 
-`jekyll/search-index.json` кладётся сабмодулем и сам просится в корень сайта
-(`permalink`), так что подключать его отдельно не нужно. Указатель собирает сам
-Jekyll — значит, он не может разойтись с текстом и не требует ни npm, ни
-экшена, ни «не забыть пересобрать».
+`jekyll/search-index.json` comes with the submodule and asks to sit at the site
+root itself (`permalink`), so nothing needs wiring up. Jekyll builds the index,
+which means it cannot drift from the text and needs neither npm, nor an action,
+nor remembering to rebuild.
 
-Разделы и их порядок — в `_data/sitesearch.yml`:
+Sections and their order go in `_data/sitesearch.yml`:
 
 ```yaml
 default:
-  title: Институт
+  title: Institute
   order: 99
 sections:
-  art:   { title: Искусство,   order: 1 }
-  dance: { title: Натьяшастра, order: 2 }
+  art:   { title: Art,          order: 1 }
+  dance: { title: Natya Shastra, order: 2 }
 ```
 
-Ключ — первый сегмент адреса. Страница исключается из указателя строкой
-`search: false` в front matter (так исключают и саму страницу поиска),
-отдельный блок — классом `nosearch`.
+The key is the first segment of the address. A page leaves the index with
+`search: false` in its front matter (that is how the search page itself stays
+out); a single block leaves with the class `nosearch`.
 
-Остальное в сабмодуле сайту не нужно, и Jekyll о нём знать не должен:
+The rest of the submodule is no use to the site, and Jekyll should not know
+about it:
 
 ```yaml
 exclude:
@@ -116,21 +121,27 @@ exclude:
   - sitesearch/node/
 ```
 
-## Что движок делает с запросом
+## What the engine does with a query
 
-- Складывает регистр, «ё» и диакритику: `samadhi` находит `samādhi`,
-  `srngara` — `śṛṅgāra`. NFD разбивает букву на основу и знак, знак
-  выбрасывается; длина строки при этом не меняется, и на ней держится
-  подсветка.
-- Совпадение начинается с начала слова. Без этого «страх» находит
-  «от·стра·нение», и на книге в двести сорок находок сто оказывались мусором.
-- Русское окончание срезается — но не больше двух конечных гласных или мягкого
-  знака и не короче трёх букв: «тело» находит «тела», «страх» не находит
-  ничего лишнего. Обратный случай берётся сам собой: «джхана» находит
-  «джханами», потому что совпадает начало.
-- Если точная форма не нашлась вовсе, слово режется по букве и останавливается
-  на первой основе, которая в тексте встречается: «страхами» доходит до
-  «страха» и дальше не идёт. Строка состояния при этом честно говорит, что
-  показаны однокоренные слова.
-- Несколько слов — находится то, где есть все они.
-- Запрос живёт в адресе (`?q=`), так что ссылкой на выдачу можно поделиться.
+- Folds case, "ё" and diacritics: `samadhi` finds `samādhi`, `srngara` finds
+  `śṛṅgāra`. NFD splits a letter into a base and a mark and the mark is thrown
+  away; the length of the string does not change, and the highlighting rests on
+  that.
+- A match begins where a word begins. Without this, the Russian for "fear"
+  finds the middle of the word for "detachment", and on a book of two hundred
+  and forty results a hundred were rubbish.
+- A Russian ending is cut off — but no more than two trailing vowels or a soft
+  sign, and never below three letters. The opposite case takes care of itself:
+  a query matches a longer word in the text because the beginning agrees.
+- If the exact form is nowhere to be found, the word is cut a letter at a time
+  and stops at the first stem that does occur in the text. The status line says
+  plainly that what is shown shares a root rather than the form asked for.
+- Several words: what is found has all of them.
+- The query lives in the address (`?q=`), so a link to a result set can be
+  shared.
+
+The status line ("3 matches", "Nothing found") is written in Russian in
+`search.js`, because both sites using it are Russian. An English-language site
+would want those strings pulled out into an option; nothing else in the engine
+is language-bound, apart from the Russian ending rules, which do no harm to
+other languages.
