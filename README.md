@@ -15,6 +15,7 @@ stays with the site.
 | `FORMAT.md`                 | the index contract: the border between builder and engine |
 | `node/html.js`              | builder for an HTML tree: a page into pieces of text    |
 | `node/write.js`             | writes an index, pre-compressed copy and all            |
+| `node/two-tier.js`          | splits a built index into a map and chunks of text      |
 | `jekyll/search-index.json`  | builder for Jekyll: the index is built by Jekyll itself |
 
 ## Attaching it
@@ -139,6 +140,56 @@ exclude:
   - sitesearch/node/
 ```
 
+## When one file is too much
+
+The index is the text of the site, and while it is a few hundred kilobytes that
+is the right shape: it arrives once, and every keystroke after that is free.
+Past that it inverts — a reader who types one word downloads every word there is
+in order to be shown ten paragraphs.
+
+`node/two-tier.js` splits a **built** index into a map of words and the chunks of
+text behind it (FORMAT.md). Nothing upstream changes: the builder writes the
+same file it wrote before, and this runs over the finished site.
+
+```sh
+node node/two-tier.js _site /search-index.json --repeats 4
+```
+
+It rewrites the index in place as a map, writes the text into
+`search-index-text/` beside it, and follows the index's own `shards` so that one
+command converts the whole site. `--repeats 4` drops paragraphs standing word
+for word on four pages or more — furniture the engine can also drop, except that
+in two tiers it would have to be counted before any text had arrived, which is
+exactly when there is none. `--chunk 32` is how many blocks travel together;
+`--brotli 1` writes a compressed copy of every file, for a host that can serve
+one.
+
+The search page changes not at all: the map has the same address the index had,
+and the engine recognises it by `"tier": 2`.
+
+What it cost, measured on the larger of the two sites this serves — 138 pages,
+11 865 paragraphs, three indexes:
+
+| | one file | two tiers |
+|---|---|---|
+| opening the search page | 1 129 KB | 265 KB |
+| and then one query | 0 | ~50 KB |
+| fourteen different queries | 0 | ~280 KB more |
+| requests | 3 | 3 + a few per query |
+
+The map is most of what is left, and most of the map is the vocabulary: 39 580
+words, front-coded, about four bytes each. Truncating those words to five
+letters would have taken another 130 KB off, and was not done — `widen()` asks
+the vocabulary whether a stem occurs at all, and a truncated vocabulary can only
+guess. VS-21 measured what that promise above the results is worth; it is not
+worth 130 KB.
+
+Results are read for in the order they will be shown, and reading stops at
+twenty of them. Whoever wants more asks — the engine puts a "показать ещё" button
+after the list, and never shows a result it has read past a paragraph it has
+not: a list that fills a gap from three pages further on is not the order of the
+site, it is the order the network answered in.
+
 ## What state the indexes are in
 
 `status.js` is a second page, for the site's own eyes: it fetches the same
@@ -162,6 +213,11 @@ SiteSearchStatus.mount({
 It counts what the site serves rather than what a builder once printed: a page
 reporting the build reports the build, and the question is what readers get.
 `shards` are followed, so naming one source shows the whole set.
+
+An index in two tiers is put back together whole first — every chunk fetched,
+several hundred requests and a megabyte or so. A reader fetches a handful; this
+page is not a reader, and what it is for is precisely the text it would
+otherwise never see.
 
 ## What the engine does with a query
 

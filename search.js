@@ -204,6 +204,47 @@
 		});
 	}
 
+	/* --- Two tiers ---------------------------------------------------------
+
+	   Past a few hundred kilobytes the flat index stops paying for itself: a
+	   reader who types one word downloads the whole site in order to be shown
+	   ten paragraphs. A builder may then split it (node/two-tier.js) into a map
+	   of words and the text behind it, and what arrives here first is the map
+	   alone — a page's address and name, and for every word the chunks of text
+	   that hold it.
+
+	   The map is a filter and never an answer. A chunk it names is fetched and
+	   then searched by the same `matches` that searches a flat index, so a
+	   chunk that turns out to hold nothing costs one request and nothing else.
+	   Results are decided by the text, here as there; the map only says where
+	   not to look. */
+
+	// Sorted words, each written as how much it shares with the one before it
+	// and then the rest of itself.
+	function decodeWords(s) {
+		if (!s) return [];
+		var raw = s.split('\n'), out = new Array(raw.length), prev = '';
+		for (var i = 0; i < raw.length; i++) {
+			prev = prev.slice(0, parseInt(raw[i].charAt(0), 36)) + raw[i].slice(1);
+			out[i] = prev;
+		}
+		return out;
+	}
+
+	// The first word that is not less than t.
+	function lowerBound(words, t) {
+		var lo = 0, hi = words.length;
+		while (lo < hi) {
+			var mid = (lo + hi) >> 1;
+			if (words[mid] < t) lo = mid + 1; else hi = mid;
+		}
+		return lo;
+	}
+
+	function startsWith(s, t) {
+		return s.lastIndexOf(t, 0) === 0;
+	}
+
 	/* A paragraph standing word for word on many pages is a section's
 	   furniture rather than its content: the "how to read these pages" aside,
 	   the same table of contents again. In the results it drowns out the real
@@ -248,6 +289,23 @@
 		var showSection = opts.showSection !== false;
 		var repeats = opts.repeats || 0;
 
+		/* Reading stops before the end more often than not, so there has to be
+		   a way to ask for the rest. The control sits outside the list: it is
+		   not a result, and a list of results is no place to say so. */
+		var more = document.createElement('p');
+		more.className = 'more';
+		more.hidden = true;
+		var button = document.createElement('button');
+		button.type = 'button';
+		button.textContent = 'Показать ещё';
+		button.addEventListener('click', function () {
+			reach += 3 * REACH;
+			allowed += 2 * READ;
+			render(input.value);
+		});
+		more.appendChild(button);
+		if (results.parentNode) results.parentNode.insertBefore(more, results.nextSibling);
+
 		var sources = [];
 
 		function add(spec) {
@@ -284,13 +342,106 @@
 			return json(spec.url + '.br').catch(function () { return json(spec.url); });
 		}
 
+		/* A two-tier source keeps its documents like any other, except that a
+		   document's blocks arrive later and out of order: `blocks` is a sparse
+		   array, and everything that walks it walks only what has come. Chunk
+		   numbers are stored nowhere — they run through the pages in order, so
+		   many blocks to a chunk — and are counted back here exactly as the
+		   builder counted them out. */
+		function spread(src, data) {
+			var size = data.chunk || 32;
+			var words = decodeWords(data.words);
+			var lists = data.postings ? data.postings.split('\n') : [];
+			var owner = [];   // chunk number -> the document it belongs to
+			var start = [];   // chunk number -> the block it begins at
+			var here = 0;
+
+			var docs = (data.pages || []).map(function (p) {
+				var n = p.blocks || 0;
+				var doc = {
+					url: p.url,
+					title: p.title,
+					also: p.also || null,
+					section: src.spec.section || p.section || null,
+					order: typeof p.order === 'number' ? p.order : (src.spec.order || 0),
+					blocks: new Array(n),
+				};
+				for (var at = 0; at < n; at += size) { start[here] = at; owner[here++] = doc; }
+				return doc;
+			});
+
+			// Chunks holding a word that begins with t; null if no word does.
+			src.postingsFor = function (t) {
+				var at = lowerBound(words, t);
+				if (at >= words.length || !startsWith(words[at], t)) return null;
+				var seen = Object.create(null);
+				for (; at < words.length && startsWith(words[at], t); at++) {
+					var d = lists[at].split(','), id = 0;
+					for (var i = 0; i < d.length; i++) { id += parseInt(d[i], 36); seen[id] = 1; }
+				}
+				return Object.keys(seen).map(Number).sort(function (a, b) { return a - b; });
+			};
+
+			/* The ladder of endings is a chain of prefixes — «тело», «тел» —
+			   and a block matches when any rung of it occurs. The shortest rung
+			   therefore names every chunk the longer ones could, and asking for
+			   it alone is not an approximation but the whole answer. */
+			src.candidates = function (ts) {
+				var out = null;
+				for (var i = 0; i < ts.length; i++) {
+					var set = src.postingsFor(ts[i][ts[i].length - 1]);
+					if (!set) return [];
+					if (out === null) { out = set; continue; }
+					var keep = Object.create(null);
+					for (var k = 0; k < set.length; k++) keep[set[k]] = 1;
+					out = out.filter(function (id) { return keep[id]; });
+					if (!out.length) return out;
+				}
+				return out || [];
+			};
+
+			src.owner = function (id) { return owner[id]; };
+			src.at = function (id) { return start[id]; };
+			src.chunks = owner.length;
+			src.got = Object.create(null);
+			src.reading = 0;
+
+			var dir = src.spec.url.replace(/[^/]*$/, '') + (data.text || '');
+			src.read = function (id) {
+				if (src.got[id]) return Promise.resolve();
+				src.got[id] = true;
+				src.reading++;
+				return index({ url: dir + id + '.json', precompressed: src.spec.precompressed })
+					.then(function (blocks) {
+						var doc = owner[id], at = start[id];
+						(blocks || []).forEach(function (b, i) {
+							var block = typeof b === 'string' ? { text: b } : b;
+							if (block && block.text) doc.blocks[at + i] = block;
+						});
+					})
+					// A chunk that will not load leaves a hole in one page, and
+					// a hole is invisible: the results are simply short. Naming
+					// each one would drown the list, so they are counted and the
+					// status line says there are some. Without that a site whose
+					// text failed to deploy would answer "nothing found" and
+					// look like a site with nothing to find.
+					.catch(function () { src.holes = (src.holes || 0) + 1; })
+					.then(function () { src.reading--; });
+			};
+
+			return docs;
+		}
+
 		function load(src) {
 			if (src.started) return;
 			src.started = true;
 			index(src.spec)
 				.then(function (data) {
-					var docs = documentsOf(data, src.spec);
-					src.docs = repeats > 1 ? dropRepeated(docs, repeats) : docs;
+					var docs = data.tier === 2 ? spread(src, data) : documentsOf(data, src.spec);
+					// Furniture repeated across pages is cut by the two-tier
+					// builder before it is ever sent; counting it here would
+					// need the very text that has not arrived.
+					src.docs = repeats > 1 && data.tier !== 2 ? dropRepeated(docs, repeats) : docs;
 					// An index may name further indexes to search alongside it.
 					(data.shards || []).forEach(add);
 					sources.forEach(function (s) { if (!s.spec.defer) load(s); });
@@ -372,11 +523,20 @@
 
 		// Fills the list and reports how much was found. Called a second time
 		// with a widened query when the first pass comes back empty.
-		function collect(ts) {
+		/* `edge` is the first piece of text this query wants and has not got.
+		   The walk stops there and shows nothing beyond it, even where a later
+		   chunk happens to be in hand from an earlier query: results stand in
+		   the order of the site, and a list that skips a paragraph it has not
+		   read yet and fills the gap from three pages further on is not that
+		   order — it is the order the network answered in. */
+		function collect(ts, edge) {
 			results.textContent = '';
-			var found = 0, shown = 0;
+			var found = 0, shown = 0, done = false;
 
 			documents().forEach(function (doc) {
+				if (done) return;
+				var upto = edge && edge.doc === doc ? edge.at : Infinity;
+
 				// A page whose name matches is itself a result — otherwise
 				// searching «индрии» finds nothing on a chapter that keeps
 				// the word in its heading alone.
@@ -385,7 +545,8 @@
 					if (shown < LIMIT) { shown++; pageResult(doc, ts); }
 				}
 
-				doc.blocks.forEach(function (b) {
+				doc.blocks.forEach(function (b, i) {
+					if (i >= upto) return;
 					// Section headings count as part of the paragraph's text for
 					// matching, but the snippet still comes from the paragraph.
 					if (!matches(folded(b), ts)) return;
@@ -394,17 +555,68 @@
 					shown++;
 					blockResult(doc, b, ts);
 				});
+
+				if (upto !== Infinity) done = true;
 			});
 
 			return { found: found, shown: shown };
 		}
 
-		// Does such a beginning of a word occur anywhere at all.
+		// Does such a beginning of a word occur anywhere at all. A two-tier
+		// source answers from its map without reading a line of text, which is
+		// the whole reason the rule below can still be afforded.
 		function occurs(t) {
-			return documents().some(function (doc) {
-				if (occurrence(foldedTitle(doc), t, 0) !== -1) return true;
-				return doc.blocks.some(function (b) { return occurrence(folded(b), t, 0) !== -1; });
+			return sources.some(function (src) {
+				if (src.postingsFor && src.postingsFor(t)) return true;
+				return (src.docs || []).some(function (doc) {
+					if (occurrence(foldedTitle(doc), t, 0) !== -1) return true;
+					return !src.postingsFor && doc.blocks.some(function (b) {
+						return occurrence(folded(b), t, 0) !== -1;
+					});
+				});
 			});
+		}
+
+		/* The chunks a query needs and has not got, in the order their results
+		   will stand in: the top of the page is read for first, because that is
+		   what the reader is shown first. */
+		function pending(ts) {
+			var rank = 0;
+			documents().forEach(function (doc) { doc.rank = rank++; });
+			var out = [];
+			sources.forEach(function (src) {
+				if (!src.candidates) return;
+				src.candidates(ts).forEach(function (id) {
+					if (!src.got[id]) out.push({ src: src, id: id, rank: src.owner(id).rank, doc: src.owner(id), at: src.at(id) });
+				});
+			});
+			return out.sort(function (a, b) { return a.rank - b.rank || a.id - b.id; });
+		}
+
+		function reading() {
+			return sources.some(function (src) { return src.reading > 0; });
+		}
+
+		/* How far to read before pausing. A common word sits in a hundred
+		   chunks; reading every one of them to print a hundred paragraphs
+		   nobody scrolls to would cost more than the single file this replaced.
+		   So: enough to fill the screen, and whoever wants the rest asks. The
+		   second number guards the opposite case — two words that share a page
+		   but never a paragraph name chunk after chunk and match in none of
+		   them, and without a bound that query reads the site. */
+		var REACH = 20;
+		var READ = 40;
+		var AT_ONCE = 6;
+
+		var asked = null;
+		var reach = REACH, allowed = READ, taken = 0;
+
+		function advance(left) {
+			var take = left.slice(0, Math.min(AT_ONCE, allowed - taken));
+			if (!take.length) return;
+			taken += take.length;
+			Promise.all(take.map(function (c) { return c.src.read(c.id); }))
+				.then(function () { render(input.value); });
 		}
 
 		/* The fallback rule: the exact pass found nothing, which means a form
@@ -448,36 +660,62 @@
 			var loading = sources.some(function (s) { return s.started && !s.docs && !s.failed; });
 			var ready = sources.some(function (s) { return s.docs; });
 			var broken = sources.filter(function (s) { return s.failed; });
+			var busy = reading();
 
+			more.hidden = true;
 			if (!searching) {
 				status.textContent = '';
 				return;
 			}
 
-			var r = collect(terms(q));
+			// A new query is read for afresh; the same query being redrawn as
+			// chunks arrive keeps the reading it has already paid for.
+			if (q !== asked) { asked = q; reach = REACH; allowed = READ; taken = 0; }
+
+			var ts = terms(q);
+			var left = pending(ts);
+			var r = collect(ts, left[0]);
 			var widened = false;
 			// Empty most likely means a form the exact rule cannot reach. While
-			// an index is still on its way, "empty" only means "not here yet",
-			// and there is no cause to hurry.
-			if (!r.found && !loading) {
-				var wide = collect(widen(q));
-				if (wide.found) { r = wide; widened = true; }
+			// an index is still on its way — or a chunk of text is — "empty"
+			// only means "not here yet", and there is no cause to hurry.
+			if (!r.found && !loading && !busy && !left.length) {
+				var wts = widen(q);
+				var wleft = pending(wts);
+				var wide = collect(wts, wleft[0]);
+				if (wide.found || wleft.length) {
+					r = wide; left = wleft; widened = wide.found > 0;
+				}
 			}
 			var found = r.found, shown = r.shown;
 
 			var say = found
 				? found + ' ' + plural(found, 'совпадение', 'совпадения', 'совпадений')
-				: (loading ? '' : 'Ничего не нашлось.');
+				: (loading || busy ? '' : (left.length ? 'Пока ничего не нашлось.' : 'Ничего не нашлось.'));
 			if (found > shown) say += ', показаны первые ' + shown;
 			if (widened) say += (say ? ' · ' : '') + 'точной формы в тексте нет, это однокоренные слова';
 			// Until some index has arrived there is nothing to search; once part
 			// of it is in hand, its results are shown while the rest loads.
 			if (loading) say += (say ? ' · ' : '') + (ready ? 'ищу дальше…' : 'Загружаю указатель…');
+			else if (busy) say += (say ? ' · ' : '') + 'читаю дальше…';
+			// Reading stopped short of the end on purpose, and saying so is the
+			// price of stopping: a count that looks final and is not would be
+			// worse than no count.
+			else if (left.length) say += (say ? ' · ' : '') + 'прочитано не всё';
 			if (broken.length) {
 				say += (say ? ' · ' : '') + 'не удалось загрузить указатель' +
 					(broken[0].spec.section ? ' (' + broken[0].spec.section + ')' : '');
 			}
+			var holes = sources.reduce(function (n, src) { return n + (src.holes || 0); }, 0);
+			if (holes) say += (say ? ' · ' : '') + 'часть текста не загрузилась (' + holes + ')';
 			status.textContent = say;
+
+			/* Reading stops for good once the list is full: the hundredth
+			   result is the last one anybody will be shown, and chunks read
+			   past it would buy nothing but a larger number in the line above.
+			   The number is short, and says so. */
+			if (left.length && shown < LIMIT && shown < reach && taken < allowed) advance(left);
+			else more.hidden = !left.length || shown >= LIMIT;
 		}
 
 		var timer;

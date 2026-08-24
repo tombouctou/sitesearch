@@ -90,15 +90,73 @@
 				});
 			});
 		}
-		if (!spec.precompressed) return get(spec.url);
-		return get(spec.url + '.br').catch(function (err) {
-			return get(spec.url).then(function (got) {
-				// JSON.parse names the offending bytes; they are noise here.
-				got.note = 'сжатая копия не подошла (' + String(err.message).split(',')[0] + '), взят обычный файл — ' +
-					'поиск работает, но лишний запрос делает каждый читатель';
-				return got;
+		function one() {
+			if (!spec.precompressed) return get(spec.url);
+			return get(spec.url + '.br').catch(function (err) {
+				return get(spec.url).then(function (got) {
+					// JSON.parse names the offending bytes; they are noise here.
+					got.note = 'сжатая копия не подошла (' + String(err.message).split(',')[0] + '), взят обычный файл — ' +
+						'поиск работает, но лишний запрос делает каждый читатель';
+					return got;
+				});
 			});
+		}
+
+		/* An index in two tiers hands over a map and keeps the text in chunks,
+		   and a reader's browser fetches only the chunks it shows. This page is
+		   not a reader: its whole business is what the text looks like — the
+		   markup that leaked into it, the paragraph repeated on forty pages —
+		   and it therefore fetches every chunk and puts the index back together
+		   whole. That is a megabyte or so and several hundred requests, which
+		   is why nothing links here. */
+		return one().then(function (got) {
+			if (!got.data || got.data.tier !== 2) return got;
+			return chunks(spec, got).then(function () { return got; });
 		});
+	}
+
+	function chunks(spec, got) {
+		var data = got.data;
+		var size = data.chunk || 32;
+		var dir = spec.url.replace(/[^/]*$/, '') + (data.text || '');
+		var jobs = [];
+		(data.pages || []).forEach(function (p) {
+			var n = p.blocks || 0;
+			p.blocks = new Array(n);
+			// The chunk's number is where it falls in this very walk: pages in
+			// order, so many blocks at a time. The builder counted it out the
+			// same way and stored it nowhere.
+			for (var at = 0; at < n; at += size) jobs.push({ page: p, at: at, id: jobs.length });
+		});
+		got.tier = { chunks: jobs.length, size: size, map: new Blob([got.text]).size, text: 0, urls: [] };
+
+		// Eight at a time: a browser will not run four hundred requests at once
+		// anyway, and queueing them by hand keeps the failures readable.
+		var at = 0;
+		function next() {
+			if (at >= jobs.length) return Promise.resolve();
+			var batch = jobs.slice(at, at + 8);
+			at += batch.length;
+			return Promise.all(batch.map(function (job) {
+				var url = dir + job.id + '.json';
+				function take(u) {
+					return fetch(u, { cache: 'reload' })
+						.then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+						.then(function (text) {
+							got.tier.text += new Blob([text]).size;
+							got.tier.urls.push(u);
+							// Placed where it belongs, not appended: eight
+							// requests come back in whatever order they please,
+							// and a page whose paragraphs are shuffled would be
+							// reported as a page whose paragraphs are shuffled.
+							JSON.parse(text).forEach(function (b, i) { job.page.blocks[job.at + i] = b; });
+						});
+				}
+				var go = spec.precompressed ? take(url + '.br').catch(function () { return take(url); }) : take(url);
+				return go.catch(function () { got.tier.failed = (got.tier.failed || 0) + 1; });
+			})).then(next);
+		}
+		return next();
 	}
 
 	// The blocks of a page, in the one shape the rest of this file expects.
@@ -206,7 +264,7 @@
 			['адрес', link(got.url)],
 			['ответ', got.status + ' ' + (got.type || '') + (got.encoding ? ' · content-encoding: ' + got.encoding : '')],
 			['по проводу', bytes(w.transfer !== undefined ? w.transfer : null) + (w.encoded ? ' (тело ' + bytes(w.encoded) + ')' : '')],
-			['разобранный', bytes(served)],
+			[got.tier ? 'карта разобранной' : 'разобранный', bytes(served)],
 			['получен за', got.ms + ' мс'],
 			['страниц', num(m.pages) + (m.empty.length ? ' · без текста ' + m.empty.length : '')],
 			['абзацев', num(m.blocks) + ' · с якорем ' + num(m.anchored) +
@@ -215,6 +273,15 @@
 			['на абзац', m.blocks ? Math.round(m.chars / m.blocks) + ' знаков' : '—'],
 			['на страницу', m.pages ? Math.round(m.blocks / m.pages) + ' абзацев' : '—'],
 		];
+		if (got.tier) {
+			var t2 = got.tier;
+			rows.splice(4, 0,
+				['устройство', 'два яруса: карта и текст кусками по ' + t2.size + ' абзацев'],
+				['карта', bytes(t2.map) + ' · читателю этого хватает, чтобы узнать, где искать'],
+				['текст', num(t2.chunks) + ' ' + plural(t2.chunks, 'кусок', 'куска', 'кусков') + ' на ' + bytes(t2.text) +
+					' · читателю едут единицы, эта страница взяла все' +
+					(t2.failed ? ' · не отдалось: ' + t2.failed : '')]);
+		}
 		if (m.shards) rows.push(['называет указателей', String(m.shards)]);
 		if (spec.section) rows.push(['раздел от страницы поиска', spec.section]);
 		if (spec.defer) rows.push(['грузится', 'только по запросу']);
