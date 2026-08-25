@@ -222,6 +222,66 @@
 		return out.sort(function (a, b) { return a[0] - b[0]; });
 	}
 
+	/* How many letters have to change to turn one word into the other, given
+	   up as soon as it is plain the answer is over `max`. The bound is what
+	   makes this affordable across a whole site: words whose lengths differ by
+	   more than `max` are thrown out before any work at all, and of the matrix
+	   only a band of 2·max+1 cells around the diagonal can ever hold a
+	   distance that small. A row whose every cell is already over the bound
+	   ends it — row minima never fall as the matrix is filled. */
+	function edits(a, b, max) {
+		if (Math.abs(a.length - b.length) > max) return max + 1;
+		var prev = [], cur = [], i, j;
+		for (j = 0; j <= b.length; j++) prev[j] = j;
+		for (i = 1; i <= a.length; i++) {
+			var lo = Math.max(1, i - max), hi = Math.min(b.length, i + max);
+			var least = cur[0] = i;
+			for (j = 1; j < lo; j++) cur[j] = max + 1;
+			for (j = lo; j <= hi; j++) {
+				var same = a.charAt(i - 1) === b.charAt(j - 1);
+				cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (same ? 0 : 1));
+				if (cur[j] < least) least = cur[j];
+			}
+			for (j = hi + 1; j <= b.length; j++) cur[j] = max + 1;
+			if (least > max) return max + 1;
+			var swap = prev; prev = cur; cur = swap;
+		}
+		return prev[b.length];
+	}
+
+	/* A word as the text itself writes it, looked up by the folded beginning
+	   of it. Everything the engine knows a word by is folded — "saktipata" —
+	   and that spelling stands nowhere on the site: one chapter writes
+	   `śaktipāta` and the next «шактипата». So when the results have to be
+	   named by the word they were found by, the word is taken back out of the
+	   very text they came from, whole: `hits` runs a match on to the end of
+	   its word, and the map carries the edges home. */
+	function form(text, t) {
+		var f = foldMap(text, true);
+		var spans = hits(f.text, [[t]]);
+		if (!spans.length) return null;
+		// The paragraph may hold the word alone and hold it inside a longer
+		// one — `śaktipāta` and `śaktipātataḥ` — and the shorter is the one
+		// that was asked about. Where the text has nothing but the longer, the
+		// longer is what it says, and it is named as it stands: half a word,
+		// cut at the length of the query, would be a spelling of nobody's.
+		var pick = spans[0];
+		for (var i = 0; i < spans.length; i++) {
+			if (f.text.slice(spans[i][0], spans[i][1]) === t) { pick = spans[i]; break; }
+		}
+		return text.slice(f.map[pick[0]], f.map[pick[1]]);
+	}
+
+	// Words as the two-tier builder counts them (node/two-tier.js), for a flat
+	// index that carries no list of its own.
+	var WORDS = /[a-zа-я0-9]+/g;
+
+	function tally(into, text) {
+		var m;
+		WORDS.lastIndex = 0;
+		while ((m = WORDS.exec(text))) into[m[0]] = (into[m[0]] || 0) + 1;
+	}
+
 	/* Build the snippet as text nodes + <mark>, never as HTML.
 
 	   The window and the matches inside it are worked out on the folded text
@@ -495,6 +555,18 @@
 				return Object.keys(seen).map(Number).sort(function (a, b) { return a - b; });
 			};
 
+			// The map is also the list of every word on these pages, which is
+			// what a mistyped query has to be measured against. How much text
+			// holds a word is the length of its postings list — counted in
+			// place, since cutting the list up would build an array per word
+			// to learn one number.
+			src.words = words;
+			src.weight = function (i) {
+				var l = lists[i] || '', n = 1;
+				for (var k = 0; k < l.length; k++) if (l.charAt(k) === ',') n++;
+				return n;
+			};
+
 			/* The ladder of endings is a chain of prefixes — «тело», «тел» —
 			   and a block matches when any rung of it occurs. The shortest rung
 			   therefore names every chunk the longer ones could, and asking for
@@ -665,9 +737,16 @@
 		   the order of the site, and a list that skips a paragraph it has not
 		   read yet and fills the gap from three pages further on is not that
 		   order — it is the order the network answered in. */
+		/* `first` holds the opening results' text, kept for the line above the
+		   list: where the search ran on something other than what was typed,
+		   that line names the word it ran on, and the word is read back out of
+		   the text rather than printed as the engine folds it. A few, not one,
+		   because the word stands plainer in some paragraphs than in others. */
+		var NAMED = 8;
+
 		function collect(ts, edge) {
 			results.textContent = '';
-			var found = 0, shown = 0, done = false;
+			var found = 0, shown = 0, done = false, first = [];
 
 			documents().forEach(function (doc) {
 				if (done) return;
@@ -678,7 +757,11 @@
 				// the word in its heading alone.
 				if (matches(foldedTitle(doc), ts)) {
 					found++;
-					if (shown < LIMIT) { shown++; pageResult(doc, ts); }
+					if (shown < LIMIT) {
+						shown++;
+						if (first.length < NAMED) first.push(doc.title);
+						pageResult(doc, ts);
+					}
 				}
 
 				doc.blocks.forEach(function (b, i) {
@@ -689,13 +772,14 @@
 					found++;
 					if (shown >= LIMIT) return;
 					shown++;
+					if (first.length < NAMED) first.push(b.text);
 					blockResult(doc, b, ts);
 				});
 
 				if (upto !== Infinity) done = true;
 			});
 
-			return { found: found, shown: shown };
+			return { found: found, shown: shown, first: first };
 		}
 
 		// Does such a beginning of a word occur anywhere at all. A two-tier
@@ -777,14 +861,172 @@
 		var KEEP = 0.6;
 
 		function widen(q) {
-			return words(q).map(function (t) {
+			var cut = null, n = 0;
+			var ts = words(q).map(function (t) {
 				var min = Math.max(4, Math.ceil(t.length * KEEP));
 				for (var len = t.length - 1; len >= min; len--) {
 					var s = t.slice(0, len);
-					if (occurs(s)) return [s];
+					if (occurs(s)) { cut = { from: t, to: s }; n++; return [s]; }
 				}
 				return [t];
 			});
+			// Which word the results were shown by can only be said when one
+			// word was shortened. With two, the line would have to name a pair
+			// and then say which stood for which.
+			return { ts: ts, cut: n === 1 ? cut : null };
+		}
+
+		/* Every word the site holds, and how much of the text holds each.
+
+		   A two-tier source knows this already: its map is that list, and it
+		   arrives whole with the first query, whether or not a line of text
+		   behind it is ever read. A flat source has no such list, but it has
+		   the text — all of it, from the moment it loads — so the words are
+		   counted straight out of the folded blocks, which were folded anyway.
+
+		   Built when first asked for and kept, because the only thing that
+		   ever asks is a query that found nothing; and thrown away when
+		   another index arrives, since it now knows words it did not. */
+		var lexicon = null, lexiconOf = -1;
+
+		function lexis() {
+			var loaded = sources.filter(function (s) { return s.docs; });
+			if (lexicon && lexiconOf === loaded.length) return lexicon;
+			var weight = Object.create(null);
+			loaded.forEach(function (src) {
+				if (src.words) {
+					src.words.forEach(function (w, i) {
+						weight[w] = (weight[w] || 0) + src.weight(i);
+					});
+					return;
+				}
+				src.docs.forEach(function (doc) {
+					tally(weight, foldedTitle(doc));
+					doc.blocks.forEach(function (b) { if (b) tally(weight, folded(b)); });
+				});
+			});
+			lexiconOf = loaded.length;
+			lexicon = { words: Object.keys(weight), weight: weight };
+			return lexicon;
+		}
+
+		/* One letter may be wrong in an ordinary word, two in a long one.
+		   The bound cannot be flat: at distance two a word of five letters has
+		   half the site for a neighbour and the answer would be a coin toss,
+		   while `paratrisikavirana` is two letters away from the one word it
+		   was meant to be and from nothing else whatsoever. Under four letters
+		   nothing is offered at all — there is not enough word to be wrong
+		   about. */
+		function allowance(len) {
+			return len >= 8 ? 2 : (len >= 4 ? 1 : 0);
+		}
+
+		/* The nearest word of the site, or null if none is near enough. A tie
+		   goes to the word more of the text holds: `mandla` is one letter from
+		   both `mandala` and `manda`, and the first stands in twenty-three
+		   chunks against five. Order in the list would answer `manda` and mean
+		   nothing by it — the list is alphabetical, and the alphabet knows
+		   nothing about this site. */
+		function nearest(spellings, max) {
+			if (!max) return null;
+			var lex = lexis(), best = null, near = max + 1, held = -1;
+			for (var i = 0; i < lex.words.length; i++) {
+				var w = lex.words[i], d = max + 1;
+				for (var k = 0; k < spellings.length; k++) {
+					var t = spellings[k];
+					if (Math.abs(w.length - t.length) > max) continue;
+					var e = edits(t, w, max);
+					// `edits` answers max + 1 for "further than that", and so
+					// does the distance so far when nothing has been measured
+					// yet: both have to be shut out, or the first word looked
+					// at is taken however far away it is.
+					if (e > max || e >= d) continue;
+					// Two letters wrong at the front is not a slip of the hand
+					// but a different word: «касинового» is that far from
+					// «малинового» and «остойчивость» from «устойчивость», and
+					// neither pair has anything to do with the other. One
+					// letter may fall anywhere — "joga" is somebody spelling
+					// `yoga` as their own language would.
+					if (e > 1 && w.slice(0, 2) !== t.slice(0, 2)) continue;
+					d = e;
+				}
+				// Nothing measured up: `d` is still the "further than that"
+				// answer, and so is `near` until a word has been found. Both
+				// have to be shut out here as well, or a word nothing matched
+				// walks straight through.
+				if (d > max || d > near) continue;
+				var weight = lex.weight[w];
+				if (d < near || weight > held) { best = w; near = d; held = weight; }
+			}
+			return best;
+		}
+
+		// The one word of the site that begins so, or null if several do: the
+		// results then hold them all, and naming a favourite among them would
+		// say something untrue about the rest.
+		function only(t) {
+			var lex = lexis(), found = null;
+			for (var i = 0; i < lex.words.length; i++) {
+				if (!startsWith(lex.words[i], t)) continue;
+				if (found) return null;
+				found = lex.words[i];
+			}
+			return found;
+		}
+
+		/* Neither the word nor any beginning of it stands anywhere on the
+		   site, which leaves the likeliest thing of all: it was typed wrong.
+
+		   Only a word the site does not hold is replaced. In a query of
+		   several words the others are the ones that are right, and mending
+		   them would answer a question nobody asked. */
+		function correct(q, cap) {
+			var ls = terms(q), ws = words(q), out = [], cut = null;
+			for (var i = 0; i < ws.length; i++) {
+				if (occurs(ws[i])) { out.push(ls[i]); continue; }
+				/* Measured from both spellings a query may have. Somebody who
+				   strips the diacritics by hand writes "srngara", the site
+				   writes `sringara`, and between those two nothing is
+				   misspelt at all — but two letters lie between them, and a
+				   misspelling of the first would then be measured from a
+				   word the site has never heard of. The endings of the ladder
+				   are not used: correcting a word already cut short would be
+				   guessing twice over. */
+				var also = vocalic(ws[i]);
+				var near = nearest(also ? [ws[i], also] : [ws[i]],
+					Math.min(allowance(ws[i].length), cap));
+				if (!near) return null;
+				out.push([near]);
+				cut = { from: ws[i], to: near };
+			}
+			return cut ? { ts: out, cut: cut } : null;
+		}
+
+		// What the line above the results will say the search was shown by:
+		// the word as the text writes it, and nothing at all where there is no
+		// single word to name.
+		function shownBy(cut, word, texts) {
+			if (!word) return null;
+			// The first paragraph shown may hold the word only inside a longer
+			// one, while the second holds it plain: «śaktipātataḥ» in the
+			// stanza, `śaktipāta` in the sentence under it. So a handful of
+			// them are looked at, and the word itself wins wherever it stands.
+			var seen = null;
+			for (var i = 0; texts && i < texts.length; i++) {
+				var got = form(texts[i], word);
+				if (!got) continue;
+				if (norm(got) === word) { seen = got; break; }
+				if (seen === null) seen = got;
+			}
+			return { from: cut.from, to: seen || word };
+		}
+
+		// One go at a set of terms: what it found, what it still has to read,
+		// and whether it is worth anything at all.
+		function attempt(ts) {
+			var left = pending(ts);
+			var r = collect(ts, left[0]);
+			return { r: r, left: left, worked: r.found > 0 || left.length > 0 };
 		}
 
 		function render(q) {
@@ -811,16 +1053,39 @@
 			var ts = terms(q);
 			var left = pending(ts);
 			var r = collect(ts, left[0]);
-			var widened = false;
+			var widened = false, said = null;
 			// Empty most likely means a form the exact rule cannot reach. While
 			// an index is still on its way — or a chunk of text is — "empty"
 			// only means "not here yet", and there is no cause to hurry.
 			if (!r.found && !loading && !busy && !left.length) {
-				var wts = widen(q);
-				var wleft = pending(wts);
-				var wide = collect(wts, wleft[0]);
-				if (wide.found || wleft.length) {
-					r = wide; left = wleft; widened = wide.found > 0;
+				var wide = widen(q);
+				var a = attempt(wide.ts);
+				// A beginning that reaches one word of the site is not a guess
+				// at all: every result is that word, and it can be named.
+				var one = a.worked && a.r.found && wide.cut ? only(wide.cut.to) : null;
+				/* Whereas a beginning that fans out to a dozen words has
+				   picked a stem and hoped; a word one letter from what was
+				   typed has not. So a misspelling is looked for even when
+				   widening did find something — but then at one letter only.
+				   Two letters is a wide enough net to catch a word that merely
+				   rhymes («касинового» → «малинового»), and it is allowed only
+				   where the site holds nothing of the sort at all.
+
+				   While chunks of text are still on their way for the widened
+				   query, "found nothing" is not yet true of it, and there is
+				   nothing to overrule. */
+				var fix = one || (a.worked && !a.r.found) ? null : correct(q, a.worked ? 1 : 2);
+				var b = fix ? attempt(fix.ts) : null;
+				if (b && b.worked) {
+					r = b.r; left = b.left;
+					if (b.r.found) said = shownBy(fix.cut, fix.cut.to, b.r.first);
+				} else if (a.worked) {
+					// The correction was tried and came to nothing, and the
+					// list on the page is its empty one: put the widened
+					// results back.
+					if (b) a = attempt(wide.ts);
+					r = a.r; left = a.left; widened = a.r.found > 0;
+					if (one) said = shownBy(wide.cut, one, a.r.first);
 				}
 			}
 			var found = r.found, shown = r.shown;
@@ -829,7 +1094,11 @@
 				? found + ' ' + plural(found, 'совпадение', 'совпадения', 'совпадений')
 				: (loading || busy ? '' : (left.length ? 'Пока ничего не нашлось.' : 'Ничего не нашлось.'));
 			if (found > shown) say += ', показаны первые ' + shown;
-			if (widened) say += (say ? ' · ' : '') + 'точной формы в тексте нет, это однокоренные слова';
+			// Naming the word beats calling it a relative: the reader is told
+			// the spelling that is actually on the site, and can see at a
+			// glance whether it is the word they meant.
+			if (said) say += (say ? ' · ' : '') + 'такого слова в тексте нет, показано по «' + said.to + '»';
+			else if (widened) say += (say ? ' · ' : '') + 'точной формы в тексте нет, это однокоренные слова';
 			// Until some index has arrived there is nothing to search; once part
 			// of it is in hand, its results are shown while the rest loads.
 			if (loading) say += (say ? ' · ' : '') + (ready ? 'ищу дальше…' : 'Загружаю указатель…');

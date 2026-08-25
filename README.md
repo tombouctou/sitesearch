@@ -255,7 +255,32 @@ otherwise never see.
   fixed floor of four letters cut a twelve-letter word in half and called
   whatever it landed on a relative. The 60% was measured over both sites'
   indexes against a stemmer, not chosen by eye.
-- Several words: what is found has all of them.
+- Where that stem reaches exactly one word of the site, the status line names
+  it instead — as the text spells it, not as the engine folds it: «показано по
+  «Parātrīśikāvivaraṇa»». Naming the word beats calling it a relative, and it
+  is said only where it is exactly true; a stem that fans out to a dozen words
+  is still reported as words of the same root.
+- A word the site does not hold at all, no beginning of which it holds either,
+  is read as a misspelling: the nearest word by edit distance is searched for
+  instead, and named the same way. One letter for an ordinary word, two for a
+  word of eight letters or more — and two only where the first two letters
+  still agree, «касинового» being that far from «малинового» without being the
+  same word in any sense. Nothing is offered under four letters: too little
+  word to be wrong about. A tie goes to the word more of the text holds —
+  `mandla` is one letter from both `mandala` and `manda`, and the first stands
+  in twenty-three chunks of text against five, while alphabetical order would
+  answer `manda` and mean nothing by it.
+- A misspelling is looked for even when the stem did find something, so long as
+  the stem fanned out — a word one letter away is not a guess, a stem that
+  reached a dozen words is — and then at one letter only.
+- The list of words to measure against costs nothing to keep: a two-tier index
+  is a map of exactly that, and a flat one has all its text in hand anyway.
+  Over the 84 686 words of ispacex.github.io, building the list and measuring
+  every one of them against the query takes 7 ms, and happens only on a query
+  that found nothing.
+- Several words: what is found has all of them. Only a word the site does not
+  hold is ever mended — in a query of several, the others are the ones that
+  are right.
 - The query lives in the address (`?q=`), so a link to a result set can be
   shared.
 
