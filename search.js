@@ -27,15 +27,79 @@
 (function (global) {
 	'use strict';
 
-	/* Diacritics are folded on both sides: the searcher types "rangapuja"
-	   where the text has "raṅgapūjā". NFD splits a letter into a base and a
-	   mark, and the mark is thrown away. The length of the string does not
-	   change — the highlighting of matches rests on that — because every
-	   composed sign yields exactly one base. */
+	/* Case, "ё" and diacritics are folded on both sides: the searcher types
+	   "rangapuja" where the text has "raṅgapūjā". NFD splits a letter into a
+	   base and a mark, and the mark is thrown away.
+
+	   The same fold also carries Cyrillic across to Latin, because on a site
+	   about Sanskrit one word is written both ways — `śaktipāta` in one
+	   chapter, «шактипата» in the next — and to the reader that is one word.
+	   Cyrillic goes to Latin rather than the other way about because only this
+	   direction is a function: «ш» is always `ś`, but `s` may be «с», «ш» or
+	   «щ», and a fold that has to guess is not a fold.
+
+	   The table is the ordinary Russian rendering of Sanskrit — «ш»→ś, «щ»→ṣ,
+	   «ч»→c, «дж»→j — after which the diacritics are thrown away on both
+	   sides, so both spellings meet at the same bare letters. Three of the
+	   rules need to look around them:
+
+	   * «дж» is one sound, j, and the pair is read before the «д» alone;
+	   * «ь» (and «ъ») before a soft vowel is the glide y — «натья» is `nāṭya`
+	     — and silent everywhere else;
+	   * «я» and «ю» carry that same glide themselves at the start of a word
+	     and after a vowel («яма» → `yama`), but after a consonant they only
+	     soften it, and the vowel is bare: «джняна» → `jñāna`.
+
+	   Russian writes the vowel ṛ as «ри», so ṛ folds to "ri" and the two meet
+	   there: «нритта» and `nṛtta` both become "nritta".
+
+	   The fold therefore no longer keeps the length of the string, and the
+	   highlighting of matches cannot rest on that any more; `foldMap` hands
+	   back, along with the folded text, where each of its letters came from.
+
+	   Anything that is neither Latin nor Cyrillic — Devanagari, digits,
+	   punctuation — passes through untouched. */
+	var CYRILLIC = {
+		'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
+		'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+		'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+		'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'c', 'ш': 's', 'щ': 's', 'ъ': '',
+		'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'u', 'я': 'a'
+	};
+	var VOWEL = /[аеёиоуыэюя]/;   // after one of these «я» and «ю» keep the glide
+	var GLIDED = /[яюеёи]/;       // after «ь» one of these makes the glide sound
+	var MARK = /[̀-ͯ]/g;
+	var VOCALIC = { 'ṛ': 'ri', 'ṝ': 'ri', 'Ṛ': 'ri', 'Ṝ': 'ri' };
+
+	/* The folded text, and for every letter of it the place in the original it
+	   was folded from — one more entry at the end for the end of the string.
+	   Only the highlighting needs the second half, so the map is built on
+	   request: it costs an array as long as the text, and the text of a site
+	   is folded whole on the first query. */
+	function foldMap(s, want) {
+		var out = '', map = want ? [] : null, n = s.length;
+		for (var i = 0; i < n; i++) {
+			var c = s.charAt(i).toLowerCase(), took = 1, piece;
+			if (VOCALIC[c] !== undefined) piece = VOCALIC[c];
+			else if (c === 'д' && s.charAt(i + 1).toLowerCase() === 'ж') { piece = 'j'; took = 2; }
+			else if (c === 'ь' || c === 'ъ') piece = GLIDED.test(s.charAt(i + 1).toLowerCase()) ? 'y' : '';
+			else if (c === 'я' || c === 'ю') {
+				var before = i > 0 ? s.charAt(i - 1).toLowerCase() : '';
+				piece = (!before || VOWEL.test(before)) ? (c === 'я' ? 'ya' : 'yu') : CYRILLIC[c];
+			}
+			else if (CYRILLIC[c] !== undefined) piece = CYRILLIC[c];
+			else piece = c.normalize('NFD').replace(MARK, '');
+			out += piece;
+			if (map) for (var k = 0; k < piece.length; k++) map.push(i);
+			i += took - 1;
+		}
+		if (!map) return out;
+		map.push(n);
+		return { text: out, map: map };
+	}
+
 	function norm(s) {
-		return s.toLowerCase()
-			.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-			.replace(/ё/g, 'е');
+		return foldMap(s, false);
 	}
 
 	/* A match begins where a word begins. Otherwise «страх» (fear) is
@@ -64,14 +128,30 @@
 	   Cutting deeper is exactly what this engine used to do (four letters off
 	   any word), and exactly why «страх» (fear) used to find «страдание»
 	   (suffering). It also shows why a list of endings will not serve: «страх»
-	   ends in «ах» and would be cut back to «стр». */
-	var SOFT = /[аеиоуыэюяьий]$/;
+	   ends in «ах» and would be cut back to «стр».
+
+	   The rungs are cut off the folded word, so the vowels here are the Latin
+	   ones the fold leaves behind: «ю» arrives as "u", «я» as "a", and «ь» has
+	   already gone. Which ladder to climb is decided by the word as it was
+	   typed, not as it was folded — after the fold every Russian word looks
+	   like a Latin one, and the English rule would then cut «голос» down to
+	   "golo". */
+	var SOFT = /[aeiouy]$/;
 	var PLURAL = /[a-z]{4,}s$/;
 
-	function ladder(t) {
+	/* Cyrillic writes the vowel ṛ as «ри» and the fold follows it there, so
+	   `nṛtta` and «нритта» meet at "nritta". Somebody who strips the diacritics
+	   by hand writes neither, but "nrtta" — so a query is offered that spelling
+	   too, an "i" put back after every "r" that has no vowel of its own. This
+	   is one extra candidate, tried after the word as it was typed: an exact
+	   match always wins. */
+	function vocalic(t) {
+		var v = t.replace(/r(?![aeiou])/g, 'ri');
+		return v === t ? null : v;
+	}
+
+	function rungs(t) {
 		var v = [t];
-		// In English one "s" serves the same purpose.
-		if (PLURAL.test(t)) { v.push(t.slice(0, -1)); return v; }
 		var s = t;
 		for (var i = 0; i < 2 && s.length > 3 && SOFT.test(s); i++) {
 			s = s.slice(0, -1);
@@ -80,12 +160,28 @@
 		return v;
 	}
 
+	function ladder(t, cyrillic) {
+		// In English one "s" serves the purpose of the Russian endings.
+		var v = !cyrillic && PLURAL.test(t) ? [t, t.slice(0, -1)] : rungs(t);
+		var also = vocalic(t);
+		if (also) v = v.concat(rungs(also));
+		return v;
+	}
+
+	var CYR_WORD = /[а-яё]/i;
+
+	function raw(q) {
+		return q.normalize('NFC').split(/\s+/).filter(function (t) { return t.length > 0; });
+	}
+
 	function words(q) {
-		return norm(q).split(/\s+/).filter(function (t) { return t.length > 0; });
+		return raw(q).map(norm).filter(function (t) { return t.length > 0; });
 	}
 
 	function terms(q) {
-		return words(q).map(ladder);
+		return raw(q).map(function (w) {
+			return ladder(norm(w), CYR_WORD.test(w));
+		}).filter(function (v) { return v[0].length > 0; });
 	}
 
 	// The longest candidate actually present, or null if none is.
@@ -119,9 +215,17 @@
 		return out.sort(function (a, b) { return a[0] - b[0]; });
 	}
 
-	// Build the snippet as text nodes + <mark>, never as HTML.
+	/* Build the snippet as text nodes + <mark>, never as HTML.
+
+	   The window and the matches inside it are worked out on the folded text
+	   and only then carried back to the original, because the two no longer
+	   agree letter for letter: «шактипата» is nine letters and folds to nine,
+	   but «натья» is five and folds to six. What is shown has to be the text
+	   as it stands — a reader searching in Cyrillic for a word written in IAST
+	   must see the IAST — so every edge is folded-side arithmetic first and
+	   `map` afterwards. */
 	function snippet(text, ts) {
-		var hay = norm(text);
+		var f = foldMap(text, true), hay = f.text;
 		var spans = hits(hay, ts);
 		var frag = document.createDocumentFragment();
 		if (!spans.length) {
@@ -140,31 +244,33 @@
 		var start = Math.max(0, spans[0][0] - 60);
 		// Don't cut a word in half at the left edge.
 		if (start > 0) {
-			var space = text.indexOf(' ', start);
+			var space = hay.indexOf(' ', start);
 			if (space !== -1 && space - start < 20) start = space + 1;
 		}
-		var end = Math.min(text.length, start + WINDOW);
+		var end = Math.min(hay.length, start + WINDOW);
 		// And at the right edge too: a word caught on the window's boundary
 		// would otherwise be highlighted as a stub — «джх» for «джханы».
-		while (end < text.length && LETTER.test(hay.charAt(end))) end++;
+		while (end < hay.length && LETTER.test(hay.charAt(end))) end++;
 
-		var cursor = start;
+		var head = f.map[start], tail = f.map[end];
+		var cursor = head;
 		if (start > 0) frag.appendChild(document.createTextNode('…'));
 
 		spans.forEach(function (s) {
-			if (s[1] <= cursor || s[0] >= end) return;
-			if (s[0] > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, s[0])));
+			var from = f.map[s[0]], to = f.map[s[1]];
+			if (to <= cursor || from >= tail) return;
+			if (from > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, from)));
 			// Two words of the query can cover one word of the text; the second
 			// then begins before the first has ended, and what is already
 			// written must not be written again.
 			var m = document.createElement('mark');
-			m.textContent = text.slice(Math.max(s[0], cursor), Math.min(s[1], end));
+			m.textContent = text.slice(Math.max(from, cursor), Math.min(to, tail));
 			frag.appendChild(m);
-			cursor = Math.min(s[1], end);
+			cursor = Math.min(to, tail);
 		});
 
-		if (cursor < end) frag.appendChild(document.createTextNode(text.slice(cursor, end)));
-		if (end < text.length) frag.appendChild(document.createTextNode('…'));
+		if (cursor < tail) frag.appendChild(document.createTextNode(text.slice(cursor, tail)));
+		if (end < hay.length) frag.appendChild(document.createTextNode('…'));
 		return frag;
 	}
 
@@ -385,11 +491,34 @@
 			/* The ladder of endings is a chain of prefixes — «тело», «тел» —
 			   and a block matches when any rung of it occurs. The shortest rung
 			   therefore names every chunk the longer ones could, and asking for
-			   it alone is not an approximation but the whole answer. */
+			   it alone is not an approximation but the whole answer.
+
+			   A word may bring a second chain along — "nrtta" beside "nritta" —
+			   and the two are not prefixes of one another, so both are asked
+			   for and the answers put together. Asking for every rung rather
+			   than the shortest of each chain would give the same set: a
+			   shorter rung names everything the longer one does. */
+			function anyOf(variants) {
+				var out = null;
+				for (var i = 0; i < variants.length; i++) {
+					var set = src.postingsFor(variants[i]);
+					if (!set) continue;
+					if (out === null) { out = set.slice(); continue; }
+					for (var k = 0; k < set.length; k++) out.push(set[k]);
+				}
+				if (out === null) return null;
+				var seen = Object.create(null);
+				return out.filter(function (id) {
+					if (seen[id]) return false;
+					seen[id] = 1;
+					return true;
+				}).sort(function (a, b) { return a - b; });
+			}
+
 			src.candidates = function (ts) {
 				var out = null;
 				for (var i = 0; i < ts.length; i++) {
-					var set = src.postingsFor(ts[i][ts[i].length - 1]);
+					var set = anyOf(ts[i]);
 					if (!set) return [];
 					if (out === null) { out = set; continue; }
 					var keep = Object.create(null);
@@ -741,5 +870,15 @@
 		if (input.value) render(input.value);
 	}
 
-	global.SiteSearch = { mount: mount };
-})(window);
+	/* The fold is handed out because the builder needs the very same one. A
+	   two-tier map is a list of the words of the site as this file folds them,
+	   and a query is looked up in it folded the same way; two copies of the
+	   table would agree until the day somebody edited one of them, and the map
+	   would then quietly stop naming the chunks it should (node/two-tier.js).
+	   Hence one copy, in the file the browser loads anyway. */
+	global.SiteSearch = { mount: mount, fold: norm };
+})(typeof globalThis !== 'undefined' ? globalThis : window);
+
+// Node reads this file for the fold alone; nothing above touches the document
+// until `mount` is called.
+if (typeof module !== 'undefined' && module.exports) module.exports = globalThis.SiteSearch;

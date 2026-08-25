@@ -229,8 +229,19 @@ otherwise never see.
 
 - Folds case, "ё" and diacritics: `samadhi` finds `samādhi`, `srngara` finds
   `śṛṅgāra`. NFD splits a letter into a base and a mark and the mark is thrown
-  away; the length of the string does not change, and the highlighting rests on
-  that.
+  away.
+- Folds Cyrillic into Latin by the ordinary Russian rendering of Sanskrit, so
+  that one word written two ways is one word: `śaktipāta`, `saktipata` and
+  «шактипата» all fold to `saktipata`, and «нритта» meets `nṛtta` at `nritta`.
+  The direction is not a matter of taste — «ш» is always `ś`, whereas `s` may be
+  «с», «ш» or «щ», and only one of the two directions is a function. The price
+  is paid in the same coin: after this «ш» and «с» are one letter, so a Russian
+  query ending in either finds a few words it did not before.
+- The fold therefore no longer keeps the length of the string, and the
+  highlighting no longer rests on that: the window and the matches are worked
+  out on the folded text and carried back through a map of where each letter
+  came from. What is shown is always the text as it stands — searching in
+  Cyrillic for a word written in IAST highlights the IAST.
 - A match begins where a word begins. Without this, the Russian for "fear"
   finds the middle of the word for "detachment", and on a book of two hundred
   and forty results a hundred were rubbish.

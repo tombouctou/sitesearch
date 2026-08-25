@@ -127,6 +127,12 @@ A page is otherwise described exactly as above, and `shards` means what it meant
 letters it shares with the word before it — one base-36 digit, so at most 35 —
 and then the rest of itself. `"0abacus\n1bacus"` is `abacus`, `abbacus`.
 
+The words are folded as the engine folds a query — case, diacritics, Cyrillic
+into Latin — because a query is looked up here folded, and a map written in some
+other alphabet would name no chunk at all. That is the one place where the
+builder is not free of the engine, and it is why `node/two-tier.js` takes the
+fold from `search.js` instead of keeping a copy of the table.
+
 **`postings`** is one string, one line per word in the same order, each line the
 chunk numbers holding that word: ascending, as gaps, in base 36, comma
 separated. `"0,3,1"` is chunks 0, 3 and 4.

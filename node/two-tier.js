@@ -37,10 +37,17 @@ const { writeIndex } = require('./write');
 // sailing, whose paragraphs run long — under about eight kilobytes.
 const CHUNK = 32;
 
-const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ё/g, 'е');
+/* The map is a list of words as the engine folds them, and a query is looked
+   up in it folded the same way. So the fold is not copied here but taken from
+   the engine itself: two tables would agree until one of them was edited, and
+   the map would then stop naming chunks it ought to name — a miss, which is
+   the one thing the map may never do (FORMAT.md). */
+const { fold: norm } = require('../search.js');
 
 // The same word boundary the engine matches on: a query term is found where a
 // word begins, so a word is a run of the letters and digits it may begin with.
+// After the fold there is no Cyrillic left in the text; the range stays all the
+// same, because what the engine tests and what is counted here must be one rule.
 const WORD = /[a-zа-я0-9]+/g;
 
 function blocksOf(page) {
