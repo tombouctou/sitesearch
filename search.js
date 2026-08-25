@@ -84,8 +84,15 @@
 			else if (c === 'д' && s.charAt(i + 1).toLowerCase() === 'ж') { piece = 'j'; took = 2; }
 			else if (c === 'ь' || c === 'ъ') piece = GLIDED.test(s.charAt(i + 1).toLowerCase()) ? 'y' : '';
 			else if (c === 'я' || c === 'ю') {
+				// The glide is dropped only after a Cyrillic consonant. A space
+				// or a hyphen before the letter means a word begins there, and
+				// a word begins with the glide: «кальпа юга» is `yuga`, not
+				// "uga". Testing for the start of the string instead — which is
+				// what this did — left every Russian word beginning in «я» or
+				// «ю» indexed without it, findable by no query at all.
 				var before = i > 0 ? s.charAt(i - 1).toLowerCase() : '';
-				piece = (!before || VOWEL.test(before)) ? (c === 'я' ? 'ya' : 'yu') : CYRILLIC[c];
+				var after = CYRILLIC[before] !== undefined && !VOWEL.test(before);
+				piece = after ? CYRILLIC[c] : (c === 'я' ? 'ya' : 'yu');
 			}
 			else if (CYRILLIC[c] !== undefined) piece = CYRILLIC[c];
 			else piece = c.normalize('NFD').replace(MARK, '');
