@@ -14,6 +14,7 @@ stays with the site.
 | `palette.js`                | jump to a section by ⌘K, dropped into every page        |
 | `status.js`                 | reports the state of the indexes a site is serving      |
 | `check-fold.js`             | the two folds must agree: search.js against palette.js  |
+| `check-prepare.js`          | what `prepare` promises about the front door of a section |
 | `FORMAT.md`                 | the index contract: the border between builder and engine |
 | `node/html.js`              | builder for an HTML tree: a page into pieces of text    |
 | `node/write.js`             | writes an index, pre-compressed copy and all            |
@@ -108,6 +109,18 @@ come to 6 KB against 92 KB, and after compression 1.5 KB against 18 KB.
 Whether the pages of a site's own shards belong in it is the site's call. They
 did on both of these: a book kept out of the palette is the largest section of
 the site invisible to it.
+
+One field is the palette's own, and optional: `fallback`. A builder that walks a
+site matches each page against a list of sections and has to put the unmatched
+ones somewhere — a name the author chose, holding pages nobody assigned. Set
+`fallback: true` on those pages and the palette stops treating the shallowest of
+them as the section's front door. The name stays searchable; it is the
+membership that was never chosen, not the name. Say nothing and nothing changes,
+so an index built before this existed still works.
+
+```json
+{ "url": "/search/", "title": "Поиск", "section": "Институт", "fallback": true }
+```
 
 ### Looks
 

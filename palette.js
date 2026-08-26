@@ -171,16 +171,31 @@
 	 * top level of the address instead would be simpler and is wrong as soon
 	 * as a section lives deeper than that — a book at `/b/mctb2/` is as much a
 	 * section as `/links/` is. Where several pages tie for shallowest, they
-	 * all count: a section with two front doors has two. */
+	 * all count: a section with two front doors has two.
+	 *
+	 * Except where the section is a leftover. A builder walking a site matches
+	 * each page against a list of sections and has to put the unmatched ones
+	 * somewhere; that somewhere is a name the author did choose ("Институт",
+	 * "Home") holding pages nobody assigned. The name is a real name and stays
+	 * searchable — this is not about the name. The membership is an accident,
+	 * and calling the shallowest accident a front door is a guess. Today it
+	 * lands on `/` and looks right; the day `/` moves or drops out of the
+	 * index, the door to the section becomes whatever happened to be next —
+	 * the search page, say. So a page says `fallback` when its section is that
+	 * bucket, and a bucket has no door. */
 	function prepare(list) {
 		var shallowest = {};
 		var pages = list.map(function (p) {
 			var deep = p.url.split('/').filter(Boolean).length;
-			if (p.section && (shallowest[p.section] === undefined || deep < shallowest[p.section])) {
+			if (p.section && !p.fallback && (shallowest[p.section] === undefined || deep < shallowest[p.section])) {
 				shallowest[p.section] = deep;
 			}
 			return {
 				url: p.url, title: p.title, section: p.section, order: p.order || 0,
+				// Set by the builder when it put this page in a section by
+				// default rather than by the list. Absent index, absent field —
+				// nothing changes for a site that does not say.
+				fallback: !!p.fallback,
 				fold: fold(p.title),
 				// How deep the page sits: "/ksh/ta/" is two segments,
 				// "/ksh/ta/glossary/" is three.
@@ -192,7 +207,7 @@
 			};
 		});
 		pages.forEach(function (p) {
-			p.home = p.section && p.depth === shallowest[p.section] ? fold(p.section) : null;
+			p.home = p.section && !p.fallback && p.depth === shallowest[p.section] ? fold(p.section) : null;
 		});
 		return pages;
 	}
