@@ -64,6 +64,7 @@ for the site's stylesheet to say.
 | `sources`      | indexes to start from; the rest arrive through their `shards`            |
 | `showSection`  | `false` — don't repeat the section over every result (search inside one book) |
 | `repeats`      | `4` — drop a paragraph standing word for word on four pages or more      |
+| `lang`         | which language the reader is in; taken from the page's own `lang` unless given |
 | `address`      | `false` — leave the page's address alone: the search is not the page's own |
 | `more`         | `false` — no "показать ещё" control; the host has nowhere to put one     |
 | `onRender`     | called after every draw, for a host holding its own handles on the rows  |

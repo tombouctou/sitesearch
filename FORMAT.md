@@ -33,6 +33,7 @@ is that border.
 | `url`     | yes      | the address the site serves it at                                |
 | `title`   | yes      | the name shown in the line above a result                        |
 | `also`    | no       | a second name, searched equally but never shown                  |
+| `lang`    | no       | which language it is written in, where a site keeps one page in several |
 | `section` | no       | the part of the site; a source may name it for the whole batch   |
 | `order`   | no       | order in the results; pages sharing an `order` keep their listed order |
 | `blocks`  | yes      | the pieces of text on it                                         |
@@ -44,6 +45,14 @@ heading is never found at all.
 `also` is for where the short name and the full one are different strings: a
 table of contents shortens "3. Concentration: the second training" to
 "3. Concentration", and both have to be searchable.
+
+A site that publishes the same page in two languages lists both, each with its
+own `lang`, and the engine searches only the one the reader is reading in —
+otherwise every query would be answered twice over, in two languages. **A page
+that names no language is searched for everybody**, which is not a loose end but
+the case that matters: a book with no translation is better read in the language
+it was written in than not found at all. It is also what keeps an index built
+before this field from behaving any differently.
 
 ## A block
 

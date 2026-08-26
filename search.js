@@ -368,6 +368,9 @@
 				// The second name is searched equally with the first: a table of
 				// contents shortens "3. Concentration: the second training".
 				also: p.also || null,
+				// Which language the page is written in, where a site keeps the
+				// same page in several. Absent means "everybody's".
+				lang: p.lang || null,
 				section: spec.section || p.section || null,
 				order: typeof p.order === 'number' ? p.order : (spec.order || 0),
 				blocks: (p.blocks || [])
@@ -471,6 +474,14 @@
 		   also stops it from reading a `?q=` meant for the page proper. */
 		var address = opts.address !== false;
 
+		/* Which language the reader is reading in. Taken from the page itself
+		   unless told otherwise, so that a site with translated pages needs to
+		   say nothing at all: the page already declares its language, for the
+		   browser and for search engines, and declaring it a second time is
+		   one more thing to fall out of step. */
+		var lang = opts.lang !== undefined ? opts.lang
+			: (document.documentElement.getAttribute('lang') || '').slice(0, 2).toLowerCase() || null;
+
 		/* Reading stops before the end more often than not, so there has to be
 		   a way to ask for the rest. The control sits outside the list: it is
 		   not a result, and a list of results is no place to say so.
@@ -547,6 +558,7 @@
 					url: p.url,
 					title: p.title,
 					also: p.also || null,
+					lang: p.lang || null,
 					section: src.spec.section || p.section || null,
 					order: typeof p.order === 'number' ? p.order : (src.spec.order || 0),
 					blocks: new Array(n),
@@ -673,6 +685,21 @@
 				});
 		}
 
+		/* A site that keeps its pages in more than one language keeps the same
+		   page twice, and the reader wants one of them: the one they are
+		   reading in. Searching both would answer every query twice over, in
+		   two languages, which is worse than answering it once in the wrong
+		   one.
+		 *
+		 * A document that names no language is shown to everybody, and that is
+		 * the case that matters most — a book with no translation is better
+		 * read in the language it was written in than not found at all. It is
+		 * also what keeps this from disturbing an index built before the field
+		 * existed, or a site that has one language and never says so. */
+		function spoken(doc) {
+			return !lang || !doc.lang || doc.lang === lang;
+		}
+
 		// Every loaded document, in the order results should appear: by section,
 		// then as the builder listed the pages inside it.
 		function documents() {
@@ -680,6 +707,7 @@
 			var seq = 0;
 			sources.forEach(function (src) {
 				(src.docs || []).forEach(function (doc) {
+					if (!spoken(doc)) return;
 					docs.push({ doc: doc, order: doc.order || 0, seq: seq++ });
 				});
 			});

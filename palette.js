@@ -183,7 +183,16 @@
 	 * index, the door to the section becomes whatever happened to be next —
 	 * the search page, say. So a page says `fallback` when its section is that
 	 * bucket, and a bucket has no door. */
-	function prepare(list) {
+	function prepare(list, lang) {
+		/* A site whose pages come in two languages lists both, and the reader
+		   wants the one they are reading in — the other would be the same page
+		   under a name they cannot type. A page that names no language belongs
+		   to everybody: a book with no translation is better reached in the
+		   language it was written in than not reachable at all. Say no language
+		   and nothing is filtered, which is what an older index gets. */
+		if (lang) {
+			list = list.filter(function (p) { return !p.lang || p.lang === lang; });
+		}
 		var shallowest = {};
 		var pages = list.map(function (p) {
 			var deep = p.url.split('/').filter(Boolean).length;
@@ -266,7 +275,7 @@
 			if (!r.ok) throw new Error(r.status);
 			return r.json();
 		}).then(function (data) {
-			pages = prepare(data.pages || []);
+			pages = prepare(data.pages || [], conf.lang);
 			return pages;
 		}).catch(function () {
 			loading = null;
@@ -664,6 +673,11 @@
 			searchIndex: opts.searchIndex || null,
 			searchPrecompressed: !!opts.searchPrecompressed,
 			engine: opts.engine || null,
+			// The page already declares its language, for the browser and for
+			// search engines. Reading it here rather than asking a site to
+			// repeat it keeps the two from falling out of step.
+			lang: opts.lang !== undefined ? opts.lang
+				: (document.documentElement.getAttribute('lang') || '').slice(0, 2).toLowerCase() || null,
 			label: opts.label || 'Быстрый переход по разделам',
 			placeholder: opts.placeholder || 'Куда идём? Название раздела или страницы'
 		};
