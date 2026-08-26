@@ -64,6 +64,13 @@ for the site's stylesheet to say.
 | `sources`      | indexes to start from; the rest arrive through their `shards`            |
 | `showSection`  | `false` — don't repeat the section over every result (search inside one book) |
 | `repeats`      | `4` — drop a paragraph standing word for word on four pages or more      |
+| `address`      | `false` — leave the page's address alone: the search is not the page's own |
+| `more`         | `false` — no "показать ещё" control; the host has nowhere to put one     |
+| `onRender`     | called after every draw, for a host holding its own handles on the rows  |
+
+`mount` hands back `{ render, input, more }`. A page's own search ignores it and
+keeps working off the field; a host that is not a page — the palette's dropdown —
+drives `render` itself, so that nothing is searched until it says so.
 
 `repeats` is for indexes whose builder does not cut page furniture away:
 Jekyll has neither regular expressions nor a way to count repeats. Where the
@@ -79,6 +86,8 @@ there", and for that it has to be on every page rather than on one:
 <script src="/sitesearch/palette.js"
         data-index="/nav-index.json"
         data-search="/search/"
+        data-search-index="/search-index.json"
+        data-search-precompressed="true"
         data-mount=".corner-tools" defer></script>
 ```
 
@@ -91,6 +100,9 @@ wherever the palette was opened from.
 | `data-index`       | the index to read — the only setting without a default              |
 | `data-mount`       | selector for where the button goes; hangs in the corner if not found |
 | `data-search`      | the full-text search page, named when the palette comes up empty    |
+| `data-search-index` | the full index: a query the names miss goes to the text instead     |
+| `data-search-precompressed` | `"true"` — a `.br` sits beside it                           |
+| `data-engine`      | where search.js lives; defaults to next door to palette.js          |
 | `data-placeholder` | what stands in the empty box                                        |
 | `data-label`       | what the button is called, in its hint and to a screen reader       |
 
@@ -121,6 +133,22 @@ so an index built before this existed still works.
 ```json
 { "url": "/search/", "title": "Поиск", "section": "Институт", "fallback": true }
 ```
+
+### When the names do not have it
+
+A name index answers a question about names, and a reader does not know that is
+the question they are being asked. «камень» is the name of nothing on one of
+these sites and the name of a book listed on one of its pages.
+
+So `data-search-index` lets a query that matched no name go on to the text of
+the site, in the same dropdown, without leaving the page. The heavy index is
+fetched at that moment and not before — a reader who finds what they came for by
+name never pays for it, which is the whole reason the two indexes are separate.
+The searching is search.js's; the palette only hands over the query and takes
+the rows back under its own keyboard, so that arrows and Enter go on working and
+Enter lands on the paragraph's own anchor.
+
+Say nothing and the palette does what it did: names the search page and stops.
 
 ### Looks
 

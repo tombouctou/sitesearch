@@ -462,9 +462,21 @@
 		var showSection = opts.showSection !== false;
 		var repeats = opts.repeats || 0;
 
+		/* A search that is the page's own owns the address bar: the query
+		   belongs in it, so that a result can be linked to and a reload comes
+		   back to the same search. A search mounted inside something else —
+		   the palette's dropdown, say — owns nothing of the sort: it sits on
+		   somebody else's page, and rewriting that page's address as the
+		   reader types would be a small theft. Hence `address: false`, which
+		   also stops it from reading a `?q=` meant for the page proper. */
+		var address = opts.address !== false;
+
 		/* Reading stops before the end more often than not, so there has to be
 		   a way to ask for the rest. The control sits outside the list: it is
-		   not a result, and a list of results is no place to say so. */
+		   not a result, and a list of results is no place to say so.
+		 *
+		 * It is built either way, because `render` speaks to it; `more: false`
+		 * only keeps it out of the page, for a host that has no room for it. */
 		var more = document.createElement('p');
 		more.className = 'more';
 		more.hidden = true;
@@ -477,7 +489,7 @@
 			render(input.value);
 		});
 		more.appendChild(button);
-		if (results.parentNode) results.parentNode.insertBefore(more, results.nextSibling);
+		if (opts.more !== false && results.parentNode) results.parentNode.insertBefore(more, results.nextSibling);
 
 		var sources = [];
 
@@ -1121,6 +1133,13 @@
 			   The number is short, and says so. */
 			if (left.length && shown < LIMIT && shown < reach && taken < allowed) advance(left);
 			else more.hidden = !left.length || shown >= LIMIT;
+
+			/* Results arrive in waves — the index, then each chunk of text —
+			   and every wave rebuilds the list. A host that puts its own
+			   handles on what is in there (keyboard selection, say) has to be
+			   told each time, or it would be holding elements that no longer
+			   exist. */
+			if (opts.onRender) opts.onRender();
 		}
 
 		var timer;
@@ -1129,6 +1148,7 @@
 			timer = setTimeout(function () {
 				var q = input.value;
 				render(q);
+				if (!address) return;
 				var url = q.trim()
 					? location.pathname + '?q=' + encodeURIComponent(q.trim())
 					: location.pathname;
@@ -1136,14 +1156,22 @@
 			}, 120);
 		});
 
-		var initial = new URLSearchParams(location.search).get('q');
-		if (initial && !input.value) input.value = initial;
+		if (address) {
+			var initial = new URLSearchParams(location.search).get('q');
+			if (initial && !input.value) input.value = initial;
+		}
 
 		// Whatever is not deferred is fetched now, so that the first query
 		// answers instantly; the rest waits until there is a query at all.
 		sources.forEach(function (src) { if (!src.spec.defer) load(src); });
 
 		if (input.value) render(input.value);
+
+		/* Handed back so that a host which is not a page can drive the search
+		   itself — asking for a query when it decides there is one, rather than
+		   waiting on an `input` event it never sends. The page's own search
+		   ignores this and keeps working off the field, as it always has. */
+		return { render: render, input: input, more: more };
 	}
 
 	/* The fold is handed out because the builder needs the very same one. A

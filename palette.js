@@ -308,6 +308,14 @@
 			'#nav-list .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
 			'#nav-list .s{font-size:.8em;opacity:.55;white-space:nowrap}',
 			'#nav-list mark{background:transparent;color:var(--p-mark);font-weight:600}',
+			/* Rows drawn by search.js, when a query fell through to the text:
+			   a trail saying where it comes from, and the words found under it.
+			   Two lines, not two columns — a paragraph does not fit on one. */
+			'#nav-list.text li{display:block}',
+			'#nav-list.text .where{font-size:.8em;opacity:.6;margin:0 0 .15em}',
+			'#nav-list.text .snippet{margin:0;font-size:.9em;line-height:1.4;',
+			'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+			'#nav-list.text a{color:inherit;text-decoration:none}',
 			'#nav-note{padding:.5em .9em;font-size:.85em;opacity:.6;margin:0}',
 			'#nav-open{background:none;color:inherit;border:1px solid var(--p-line);',
 			'border-radius:999px;cursor:pointer;font:inherit;font-size:.8rem;line-height:1;',
@@ -375,15 +383,117 @@
 		return conf.search ? lead + ' Полный поиск по тексту — на ' + conf.search : lead;
 	}
 
+	/* --- through to the text of the site -----------------------------------
+	 *
+	 * The palette holds the names of pages and nothing else, and that is the
+	 * bargain it was built on: two kilobytes on every page instead of ninety.
+	 * But a query the names cannot match is not the same as a query the site
+	 * cannot answer. «камень» is the name of nothing here and the name of a
+	 * book listed on one of the pages.
+	 *
+	 * So instead of handing the reader their question back with directions,
+	 * the question goes on to the full search, in the same list, without
+	 * leaving the page. The heavy index is fetched at that moment and not
+	 * before: a reader who finds what they came for by name never pays for it,
+	 * which is the whole reason the two indexes are separate.
+	 *
+	 * Searching is search.js's job and stays there. What happens here is only
+	 * the handover: load it once, hold a field of its own for it to read the
+	 * query from, and take the rows it draws back under the palette's own
+	 * keyboard.
+	 */
+	var engine = null, engineTried = false, feed = null, mode = null;
+
+	function bringEngine() {
+		if (engineTried) return;
+		engineTried = true;
+		if (global.SiteSearch) { startEngine(); return; }
+		if (!conf.engine) { engine = false; return; }
+		var s = document.createElement('script');
+		s.src = conf.engine;
+		s.onload = function () {
+			if (global.SiteSearch) { startEngine(); if (mode === 'text') ask(input.value.trim()); }
+			else { engine = false; note(elsewhere('Ничего не нашлось.')); }
+		};
+		s.onerror = function () { engine = false; note(elsewhere('Ничего не нашлось.')); };
+		document.head.appendChild(s);
+	}
+
+	function startEngine() {
+		// A field of its own, outside the document: search.js reads the query
+		// from it when a chunk of text lands and the answer has to be redrawn.
+		// Handing it the palette's own field instead would set it searching on
+		// every keystroke, and the heavy index would be fetched by anybody who
+		// so much as opened the palette.
+		feed = document.createElement('input');
+		engine = global.SiteSearch.mount({
+			input: feed,
+			status: note_,
+			results: list,
+			sources: [{ url: conf.searchIndex, precompressed: conf.searchPrecompressed }],
+			address: false,     // this is somebody else's page
+			more: false,        // the list scrolls; there is nowhere to put a button
+			onRender: adopt
+		});
+	}
+
+	/* The rows are search.js's, the keyboard is the palette's. Each row is
+	   given what `select` and `go` need — an id, a role, an address taken from
+	   the link inside it — and the reader's place in the list is kept across
+	   redraws, so that text arriving in the background does not throw them
+	   back to the top mid-choice. */
+	function adopt() {
+		var was = at;
+		items = [];
+		at = -1;
+		var rows = list.children;
+		for (var i = 0; i < rows.length; i++) {
+			var a = rows[i].querySelector('a[href]');
+			if (!a) continue;
+			rows[i].id = 'nav-i' + items.length;
+			rows[i].setAttribute('role', 'option');
+			rows[i].dataset.url = a.getAttribute('href');
+			items.push(rows[i]);
+		}
+		if (items.length) select(was > 0 && was < items.length ? was : 0);
+		else if (conf.search) {
+			// The text did not have it either. search.js says so in its own
+			// words; the way onward is the palette's to add, and it is the same
+			// way it would have offered had it never looked. Safe to append on
+			// every draw: the line is written afresh each time, just above.
+			note_.textContent = elsewhere(note_.textContent || 'Ничего не нашлось.');
+		}
+		// An empty line of its own is still a line, and it shows as a gap.
+		note_.style.display = note_.textContent ? '' : 'none';
+	}
+
+	function ask(q) {
+		if (!engine) return;
+		feed.value = q;
+		engine.render(q);
+	}
+
 	function render(query) {
 		list.textContent = '';
 		items = [];
 		at = -1;
 		var q = query.trim();
-		if (!pages) { note('Указатель ещё едет…'); return; }
-		if (!q) { note('Начните вводить название раздела или страницы.'); return; }
+		if (!pages) { mode = null; list.className = ''; note('Указатель ещё едет…'); return; }
+		if (!q) { mode = null; list.className = ''; note('Начните вводить название раздела или страницы.'); return; }
 		var found = pick(pages, q);
-		if (!found.length) { note(elsewhere('Ничего не нашлось.')); return; }
+		if (!found.length) {
+			if (!conf.searchIndex) { mode = null; list.className = ''; note(elsewhere('Ничего не нашлось.')); return; }
+			// The list is laid out differently for text: a name is one line,
+			// a paragraph is a trail with the words found under it.
+			mode = 'text';
+			list.className = 'text';
+			if (engine === null) { note('Ничего не нашлось по названиям. Ищу по тексту…'); bringEngine(); return; }
+			if (engine === false) { note(elsewhere('Ничего не нашлось.')); return; }
+			ask(q);
+			return;
+		}
+		mode = 'names';
+		list.className = '';
 		note('');
 		var words = fold(q).split(/\s+/).filter(function (w) { return w.length > 0; });
 		found.forEach(function (p, i) {
@@ -535,13 +645,25 @@
 
 	/* `index` is the only setting without a default. `mount` is a selector for
 	   where the button goes, `search` the address of the full-text search page
-	   to point at when the palette comes up empty. */
+	   to point at when the palette comes up empty.
+	 *
+	 * `searchIndex` is what turns that dead end into an answer: given it, a
+	 * query the names could not match is put to the text of the site instead,
+	 * right here in the same list. It is a separate setting rather than
+	 * something derived, because the whole point of the palette's own index is
+	 * that it is not this one — this one is the heavy file, and it is fetched
+	 * only when a reader has actually asked for something the names do not
+	 * hold. `searchPrecompressed` says a `.br` sits beside it; `engine` is
+	 * where search.js lives, and defaults to next door to this file. */
 	function mount(opts) {
 		if (conf) return;                       // one palette to a page
 		conf = {
 			index: opts.index,
 			mount: opts.mount || null,
 			search: opts.search || null,
+			searchIndex: opts.searchIndex || null,
+			searchPrecompressed: !!opts.searchPrecompressed,
+			engine: opts.engine || null,
 			label: opts.label || 'Быстрый переход по разделам',
 			placeholder: opts.placeholder || 'Куда идём? Название раздела или страницы'
 		};
@@ -571,9 +693,15 @@
 	// setup for a site that has no JavaScript of its own to put it in.
 	if (typeof document !== 'undefined' && document.currentScript) {
 		var d = document.currentScript.dataset;
+		// Where this very file came from, so that its neighbour can be found
+		// without the site having to say twice where the pair lives.
+		var here = document.currentScript.src;
 		if (d.index) {
 			mount({
 				index: d.index, mount: d.mount, search: d.search,
+				searchIndex: d.searchIndex,
+				searchPrecompressed: d.searchPrecompressed === 'true',
+				engine: d.engine || (here ? here.replace(/[^/]*$/, 'search.js') : null),
 				label: d.label, placeholder: d.placeholder
 			});
 		}
