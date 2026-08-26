@@ -11,7 +11,9 @@ stays with the site.
 | file                        | what it does                                            |
 |-----------------------------|---------------------------------------------------------|
 | `search.js`                 | the engine, dropped into a search page                  |
+| `palette.js`                | jump to a section by ⌘K, dropped into every page        |
 | `status.js`                 | reports the state of the indexes a site is serving      |
+| `check-fold.js`             | the two folds must agree: search.js against palette.js  |
 | `FORMAT.md`                 | the index contract: the border between builder and engine |
 | `node/html.js`              | builder for an HTML tree: a page into pieces of text    |
 | `node/write.js`             | writes an index, pre-compressed copy and all            |
@@ -66,6 +68,80 @@ for the site's stylesheet to say.
 Jekyll has neither regular expressions nor a way to count repeats. Where the
 builder does cut it, the rule would only walk the index for nothing, so it is
 off by default.
+
+## Jumping to a section
+
+The search answers "where is that written about". The palette answers "take me
+there", and for that it has to be on every page rather than on one:
+
+```html
+<script src="/sitesearch/palette.js"
+        data-index="/nav-index.json"
+        data-search="/search/"
+        data-mount=".corner-tools" defer></script>
+```
+
+⌘K on macOS, Ctrl-K elsewhere, and "/" as a second shortcut for whoever has
+neither. Esc closes, the arrows walk the list, Enter goes. Focus returns to
+wherever the palette was opened from.
+
+| attribute          | what it does                                                        |
+|--------------------|---------------------------------------------------------------------|
+| `data-index`       | the index to read — the only setting without a default              |
+| `data-mount`       | selector for where the button goes; hangs in the corner if not found |
+| `data-search`      | the full-text search page, named when the palette comes up empty    |
+| `data-placeholder` | what stands in the empty box                                        |
+| `data-label`       | what the button is called, in its hint and to a screen reader       |
+
+`SitePalette.mount({ index: … })` is the same thing said in JavaScript, for a
+site that has somewhere to say it.
+
+### Its index is not the search index
+
+The palette rides on every page, and the search index cannot: a map of every
+word of a site is tens of kilobytes at best. What the palette needs is `pages`
+of FORMAT.md **without** `blocks` — an address, a name, a section, an order —
+and a builder that already writes the search index can project that out of it
+for a rounding error. On the smaller of the two sites this serves, 61 pages
+come to 6 KB against 92 KB, and after compression 1.5 KB against 18 KB.
+
+Whether the pages of a site's own shards belong in it is the site's call. They
+did on both of these: a book kept out of the palette is the largest section of
+the site invisible to it.
+
+### Looks
+
+Colours come from custom properties, dark by default; a site with a light theme
+redefines them on `#nav-palette, #nav-open`:
+
+```css
+#nav-palette, #nav-open {
+    --p-bg: var(--bg); --p-fg: var(--fg);
+    --p-line: var(--border); --p-sel: rgba(128, 128, 160, .28);
+    --p-mark: var(--link); --p-veil: rgba(0, 0, 0, .55);
+}
+```
+
+The palette's own stylesheet goes in as the first thing in `<head>`, so that a
+site's rules win every tie — including the ones about where `#nav-open` sits
+when it is left hanging in the corner.
+
+### Two folds, one repository
+
+`palette.js` carries its own copy of the fold rather than calling
+`SiteSearch.fold`: that one sits inside a 49 KB search engine, and hauling it
+to every page for the sake of forty lines is not a trade worth making. A copy
+diverges silently — «натья» stops finding `nāṭya` and nobody notices — so
+`check-fold.js` runs both over one set of words and requires them to agree
+character for character.
+
+That check is the reason the palette lives here at all. A site that copied it
+into itself would need the same check in a third place, comparing across
+repositories, and would get it wrong.
+
+```sh
+node check-fold.js
+```
 
 ## Building an index
 
