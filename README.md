@@ -231,6 +231,13 @@ The key is the first segment of the address. A page leaves the index with
 `search: false` in its front matter (that is how the search page itself stays
 out); a single block leaves with the class `nosearch`.
 
+A page that has a twin in another language says which one it is in — `lang: en`
+in its front matter — and is then offered only to a reader standing on a page in
+that language, as `<html lang>` declares it. A page that says nothing is offered
+to everybody. Without this a site that publishes a translation answers every
+query twice, in two languages, and the only way out is to keep the translation
+out of the index — which is to say, unfindable.
+
 The same file may name indexes Jekyll did not build, and they are passed to the
 engine as its `shards`:
 

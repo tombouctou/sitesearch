@@ -183,6 +183,14 @@
 	 * index, the door to the section becomes whatever happened to be next —
 	 * the search page, say. So a page says `fallback` when its section is that
 	 * bucket, and a bucket has no door. */
+	/* A language, cut to what two of them can be compared by: `<html lang>` is
+	   a full tag — "en-US" — and an index may carry either form. Both ends are
+	   cut in one place, so neither has to know which form the other uses. The
+	   engine cuts its own the same way, for the same reason. */
+	function tongue(s) {
+		return (s || '').slice(0, 2).toLowerCase() || null;
+	}
+
 	function prepare(list, lang) {
 		/* A site whose pages come in two languages lists both, and the reader
 		   wants the one they are reading in — the other would be the same page
@@ -190,8 +198,9 @@
 		   to everybody: a book with no translation is better reached in the
 		   language it was written in than not reachable at all. Say no language
 		   and nothing is filtered, which is what an older index gets. */
+		lang = tongue(lang);
 		if (lang) {
-			list = list.filter(function (p) { return !p.lang || p.lang === lang; });
+			list = list.filter(function (p) { return !p.lang || tongue(p.lang) === lang; });
 		}
 		var shallowest = {};
 		var pages = list.map(function (p) {
@@ -676,8 +685,8 @@
 			// The page already declares its language, for the browser and for
 			// search engines. Reading it here rather than asking a site to
 			// repeat it keeps the two from falling out of step.
-			lang: opts.lang !== undefined ? opts.lang
-				: (document.documentElement.getAttribute('lang') || '').slice(0, 2).toLowerCase() || null,
+			lang: tongue(opts.lang !== undefined ? opts.lang
+				: document.documentElement.getAttribute('lang')),
 			label: opts.label || 'Быстрый переход по разделам',
 			placeholder: opts.placeholder || 'Куда идём? Название раздела или страницы'
 		};

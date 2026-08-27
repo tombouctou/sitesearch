@@ -67,6 +67,21 @@ in a JavaScript literal. Such an index is made beforehand by whatever suits it
 and lies ready as a file; naming it here rather than on the search page keeps
 what a site is made of in one place.
 
+A page that declares its language — "lang: en" in its front matter — carries
+that into the index, and the engine then offers it only to a reader reading in
+that language. Without it a site that publishes the same page twice answers
+every query twice over, once in a language the reader did not ask for; with it,
+keeping the translation out of the index altogether stops being the only way to
+keep the search usable.
+
+A page that declares nothing takes the site's own "lang", if the site has one.
+Otherwise only the translated half of a site would be marked, the original half
+would be marked "everybody's", and the reader of the translation would get both
+halves — every finding twice again, which is the thing being fixed. A site with
+one language marks every page with it and nothing changes: the reader is reading
+in that language too. A site that declares no language at all marks nothing, and
+an index built before this field behaves exactly as it did.
+
 A page can be left out with "search: false" in its front matter — that is how
 the search page itself is left out. A single piece of furniture is left out with
 the class nosearch. Breadcrumbs, the pager and a page's own table of contents
@@ -89,12 +104,13 @@ is nothing but noise to be had from it.
 {%- if p.path contains 'sitesearch/' -%}{% continue %}{% endif -%}
 {%- assign parts = p.url | split: '/' -%}
 {%- assign seg = parts[1] -%}
+{%- assign plang = p.lang | default: site.lang -%}
 {%- assign sec = conf.sections[seg] -%}
 {%- assign sectitle = sec.title | default: conf.default.title -%}
 {%- assign secorder = sec.order | default: conf.default.order | default: 99 -%}
 {%- unless firstpage %},{% endunless -%}
 {%- assign firstpage = false -%}
-{"url":{{ p.url | jsonify }},"title":{{ p.title | default: p.url | jsonify }},"section":{{ sectitle | jsonify }},"order":{{ secorder }},"blocks":[
+{"url":{{ p.url | jsonify }},"title":{{ p.title | default: p.url | jsonify }}{% if plang %},"lang":{{ plang | jsonify }}{% endif %},"section":{{ sectitle | jsonify }},"order":{{ secorder }},"blocks":[
 {%- assign firstpara = true -%}
 {%- assign chunks = p.content | newline_to_br | split: sep -%}
 {%- for chunk in chunks -%}

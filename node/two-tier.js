@@ -108,8 +108,16 @@ function deltas(list) {
 
 function split(index, opts = {}) {
 	const chunkSize = opts.chunk || CHUNK;
+	/* The fields are named one by one rather than copied wholesale: what
+	   travels to the browser is what the engine reads, and whatever a builder
+	   kept for itself has no business making the journey. The price is that a
+	   field added to FORMAT.md has to be added here as well, and `lang` was
+	   not — so a site in two languages kept its languages in the flat index
+	   and lost them the moment the index grew big enough to be split, which is
+	   exactly the size at which nobody reads the file to check. */
 	const pages = (index.pages || []).map((p) => ({
 		url: p.url, title: p.title, also: p.also || undefined,
+		lang: p.lang || undefined,
 		section: p.section || undefined, order: p.order,
 		blocks: blocksOf(p),
 	}));
@@ -155,7 +163,7 @@ function split(index, opts = {}) {
 		text: opts.text,
 		chunk: chunkSize,
 		pages: pages.map((p) => ({
-			url: p.url, title: p.title, also: p.also,
+			url: p.url, title: p.title, also: p.also, lang: p.lang,
 			section: p.section, order: p.order, blocks: p.blocks.length,
 		})),
 		words: frontCode(words),

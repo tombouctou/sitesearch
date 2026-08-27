@@ -349,6 +349,16 @@
 		return many;
 	}
 
+	/* A language, cut down to what two of them can be compared by. The reader's
+	   arrives from <html lang>, where it is a full tag — "en-US", "ru-RU" — and
+	   a page's arrives from whatever the builder was handed; "en-US" and "en"
+	   are one language and must not fail to match over a region nobody meant to
+	   speak of. Both ends are cut here, so neither builder nor page has to
+	   remember which form the other uses. */
+	function tongue(s) {
+		return (s || '').slice(0, 2).toLowerCase() || null;
+	}
+
 	/* The unit of an index is a page: its address, its name, and the pieces of
 	   text on it. A block with neither an anchor nor a heading above it may be
 	   written as a plain string — shorter, and a Liquid template is spared a
@@ -370,7 +380,7 @@
 				also: p.also || null,
 				// Which language the page is written in, where a site keeps the
 				// same page in several. Absent means "everybody's".
-				lang: p.lang || null,
+				lang: tongue(p.lang),
 				section: spec.section || p.section || null,
 				order: typeof p.order === 'number' ? p.order : (spec.order || 0),
 				blocks: (p.blocks || [])
@@ -479,8 +489,8 @@
 		   say nothing at all: the page already declares its language, for the
 		   browser and for search engines, and declaring it a second time is
 		   one more thing to fall out of step. */
-		var lang = opts.lang !== undefined ? opts.lang
-			: (document.documentElement.getAttribute('lang') || '').slice(0, 2).toLowerCase() || null;
+		var lang = tongue(opts.lang !== undefined ? opts.lang
+			: document.documentElement.getAttribute('lang'));
 
 		/* Reading stops before the end more often than not, so there has to be
 		   a way to ask for the rest. The control sits outside the list: it is
@@ -558,7 +568,7 @@
 					url: p.url,
 					title: p.title,
 					also: p.also || null,
-					lang: p.lang || null,
+					lang: tongue(p.lang),
 					section: src.spec.section || p.section || null,
 					order: typeof p.order === 'number' ? p.order : (src.spec.order || 0),
 					blocks: new Array(n),
