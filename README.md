@@ -15,6 +15,7 @@ stays with the site.
 | `status.js`                 | reports the state of the indexes a site is serving      |
 | `check-fold.js`             | the two folds must agree: search.js against palette.js  |
 | `check-prepare.js`          | what `prepare` promises about the front door of a section |
+| `check-say.js`              | the words both files say, in every language they claim   |
 | `FORMAT.md`                 | the index contract: the border between builder and engine |
 | `node/html.js`              | builder for an HTML tree: a page into pieces of text    |
 | `node/write.js`             | writes an index, pre-compressed copy and all            |
@@ -227,7 +228,25 @@ sections:
   dance: { title: Natya Shastra, order: 2 }
 ```
 
-The key is the first segment of the address. A page leaves the index with
+The key is the first segment of the address — or the second, where the first is
+the page's own language: a translation at `/en/dance/ns-ch5` belongs to the
+same section as the page it was translated from, a book not having changed what
+part of the site it is in by being read in another language. Only a segment
+that matches the page's `lang` is skipped, so a section that one day gets
+called `en` is still found.
+
+A section may carry its name in other languages under `named`, and then a page
+is put in the section under the name that page is written in:
+
+```yaml
+sections:
+  ksh: { title: Кашмирский шиваизм, named: { en: Kashmir Shaivism }, order: 4 }
+```
+
+The name stands over every result and in every line of the palette, so without
+this it is the one word on an English page that the reader it was shown to
+cannot read. It is also what finds the section: the palette searches the names
+of sections along with the names of pages. A page leaves the index with
 `search: false` in its front matter (that is how the search page itself stays
 out); a single block leaves with the class `nosearch`.
 
@@ -262,6 +281,9 @@ about it:
 exclude:
   - sitesearch/README.md
   - sitesearch/FORMAT.md
+  - sitesearch/check-fold.js
+  - sitesearch/check-prepare.js
+  - sitesearch/check-say.js
   - sitesearch/node/
 ```
 
@@ -409,8 +431,30 @@ otherwise never see.
 - The query lives in the address (`?q=`), so a link to a result set can be
   shared.
 
-The status line ("3 matches", "Nothing found") is written in Russian in
-`search.js`, because both sites using it are Russian. An English-language site
-would want those strings pulled out into an option; nothing else in the engine
-is language-bound, apart from the Russian ending rules, which do no harm to
-other languages.
+## What language it says it in
+
+The reader's language — the same one by which the results themselves are
+chosen, read off `<html lang>` unless `mount` is told otherwise. It picks a
+column in the table each file keeps: `SAY` in `search.js` for the status line
+("3 matches", "Nothing found"), `SAY` in `palette.js` for the palette's own
+lines, its button and its empty box.
+
+Adding a language is adding a column and nothing else — no call site below the
+table names one. A language the table does not hold falls back to Russian,
+which is what every page got before there was a table.
+
+Everything that counts, or that puts a word inside a sentence, goes in as a
+function, because both are the language's own business: Russian has three
+plural forms and English two.
+
+`check-say.js` holds the columns to each other — the same keys in each, the
+same kind under each, nothing left standing in Russian in a column that is not,
+nothing said that the table does not hold, and no phrase written at the call
+site where it will stay Russian for as long as it lives there.
+
+```sh
+node check-say.js
+```
+
+Apart from these, nothing in the engine is language-bound except the Russian
+ending rules, which do no harm to other languages.

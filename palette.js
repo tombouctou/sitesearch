@@ -191,6 +191,47 @@
 		return (s || '').slice(0, 2).toLowerCase() || null;
 	}
 
+	/* --- what the palette says about itself --------------------------------
+	 *
+	 * In the language the reader is reading in — the same `lang` by which the
+	 * names in the list were chosen. A palette that offers English pages and
+	 * calls them «Разделы» has translated the half nobody sees.
+	 *
+	 * A language the table does not hold falls back to Russian: that is what
+	 * every page got before there was a table. Adding a language is adding a
+	 * column, and nothing else — no call site below names one.
+	 *
+	 * `label` and `placeholder` are here as defaults only. A site that knows
+	 * what it holds says something better than either («например: Тантралока,
+	 * словарь, паруса») and hands it in by attribute, in its own language.
+	 */
+	var SAY = {
+		ru: {
+			list: 'Разделы',
+			onward: function (where) { return ' Полный поиск по тексту — на ' + where; },
+			none: 'Ничего не нашлось.',
+			coming: 'Указатель ещё едет…',
+			start: 'Начните вводить название раздела или страницы.',
+			toText: 'Ничего не нашлось по названиям. Ищу по тексту…',
+			broken: 'Указатель не загрузился.',
+			tip: function (label, combo) { return label + ' — ' + combo + ' или /'; },
+			label: 'Быстрый переход по разделам',
+			placeholder: 'Куда идём? Название раздела или страницы'
+		},
+		en: {
+			list: 'Sections',
+			onward: function (where) { return ' Full search of the text is at ' + where; },
+			none: 'Nothing found.',
+			coming: 'The index is still on its way…',
+			start: 'Start typing the name of a section or a page.',
+			toText: 'No name matches that. Looking through the text…',
+			broken: 'The index would not load.',
+			tip: function (label, combo) { return label + ' — ' + combo + ' or /'; },
+			label: 'Jump to a section',
+			placeholder: 'Where to? The name of a section or a page'
+		}
+	};
+
 	function prepare(list, lang) {
 		/* A site whose pages come in two languages lists both, and the reader
 		   wants the one they are reading in — the other would be the same page
@@ -371,12 +412,13 @@
 			'<div id="nav-box">' +
 			'<input id="nav-q" type="search" autocomplete="off" spellcheck="false" ' +
 			'role="combobox" aria-expanded="true" aria-controls="nav-list" />' +
-			'<ul id="nav-list" role="listbox" aria-label="Разделы"></ul>' +
+			'<ul id="nav-list" role="listbox"></ul>' +
 			'<p id="nav-note"></p></div>';
 		document.body.appendChild(box);
 		input = box.querySelector('#nav-q');
 		list = box.querySelector('#nav-list');
 		note_ = box.querySelector('#nav-note');
+		list.setAttribute('aria-label', conf.say.list);
 		input.placeholder = conf.placeholder;
 
 		box.addEventListener('mousedown', function (e) {
@@ -398,7 +440,7 @@
 	// Where to send somebody the palette could not help: named only if the
 	// site has such a page at all.
 	function elsewhere(lead) {
-		return conf.search ? lead + ' Полный поиск по тексту — на ' + conf.search : lead;
+		return conf.search ? lead + conf.say.onward(conf.search) : lead;
 	}
 
 	/* --- through to the text of the site -----------------------------------
@@ -431,9 +473,9 @@
 		s.src = conf.engine;
 		s.onload = function () {
 			if (global.SiteSearch) { startEngine(); if (mode === 'text') ask(input.value.trim()); }
-			else { engine = false; note(elsewhere('Ничего не нашлось.')); }
+			else { engine = false; note(elsewhere(conf.say.none)); }
 		};
-		s.onerror = function () { engine = false; note(elsewhere('Ничего не нашлось.')); };
+		s.onerror = function () { engine = false; note(elsewhere(conf.say.none)); };
 		document.head.appendChild(s);
 	}
 
@@ -479,7 +521,7 @@
 			// words; the way onward is the palette's to add, and it is the same
 			// way it would have offered had it never looked. Safe to append on
 			// every draw: the line is written afresh each time, just above.
-			note_.textContent = elsewhere(note_.textContent || 'Ничего не нашлось.');
+			note_.textContent = elsewhere(note_.textContent || conf.say.none);
 		}
 		// An empty line of its own is still a line, and it shows as a gap.
 		note_.style.display = note_.textContent ? '' : 'none';
@@ -496,17 +538,17 @@
 		items = [];
 		at = -1;
 		var q = query.trim();
-		if (!pages) { mode = null; list.className = ''; note('Указатель ещё едет…'); return; }
-		if (!q) { mode = null; list.className = ''; note('Начните вводить название раздела или страницы.'); return; }
+		if (!pages) { mode = null; list.className = ''; note(conf.say.coming); return; }
+		if (!q) { mode = null; list.className = ''; note(conf.say.start); return; }
 		var found = pick(pages, q);
 		if (!found.length) {
-			if (!conf.searchIndex) { mode = null; list.className = ''; note(elsewhere('Ничего не нашлось.')); return; }
+			if (!conf.searchIndex) { mode = null; list.className = ''; note(elsewhere(conf.say.none)); return; }
 			// The list is laid out differently for text: a name is one line,
 			// a paragraph is a trail with the words found under it.
 			mode = 'text';
 			list.className = 'text';
-			if (engine === null) { note('Ничего не нашлось по названиям. Ищу по тексту…'); bringEngine(); return; }
-			if (engine === false) { note(elsewhere('Ничего не нашлось.')); return; }
+			if (engine === null) { note(conf.say.toText); bringEngine(); return; }
+			if (engine === false) { note(elsewhere(conf.say.none)); return; }
 			ask(q);
 			return;
 		}
@@ -569,7 +611,7 @@
 		input.focus();
 		load().then(function (ok) {
 			if (!box.classList.contains('on')) return;
-			if (!ok) { note(elsewhere('Указатель не загрузился.')); return; }
+			if (!ok) { note(elsewhere(conf.say.broken)); return; }
 			render(input.value);
 		});
 	}
@@ -634,7 +676,7 @@
 		b.id = 'nav-open';
 		b.type = 'button';
 		b.setAttribute('aria-label', conf.label);
-		b.setAttribute('data-tip', conf.label + ' — ' + combo + ' или /');
+		b.setAttribute('data-tip', conf.say.tip(conf.label, combo));
 		b.appendChild(document.createTextNode('⌕ '));
 		var k = document.createElement('kbd');
 		k.appendChild(document.createTextNode(combo));
@@ -675,6 +717,13 @@
 	 * where search.js lives, and defaults to next door to this file. */
 	function mount(opts) {
 		if (conf) return;                       // one palette to a page
+		// The page already declares its language, for the browser and for
+		// search engines. Reading it here rather than asking a site to repeat
+		// it keeps the two from falling out of step. It is read before `conf`
+		// is built because two of the settings default to words in it.
+		var lang = tongue(opts.lang !== undefined ? opts.lang
+			: document.documentElement.getAttribute('lang'));
+		var say_ = SAY[lang] || SAY.ru;
 		conf = {
 			index: opts.index,
 			mount: opts.mount || null,
@@ -682,13 +731,10 @@
 			searchIndex: opts.searchIndex || null,
 			searchPrecompressed: !!opts.searchPrecompressed,
 			engine: opts.engine || null,
-			// The page already declares its language, for the browser and for
-			// search engines. Reading it here rather than asking a site to
-			// repeat it keeps the two from falling out of step.
-			lang: tongue(opts.lang !== undefined ? opts.lang
-				: document.documentElement.getAttribute('lang')),
-			label: opts.label || 'Быстрый переход по разделам',
-			placeholder: opts.placeholder || 'Куда идём? Название раздела или страницы'
+			lang: lang,
+			say: say_,
+			label: opts.label || say_.label,
+			placeholder: opts.placeholder || say_.placeholder
 		};
 		// The document has to be built before the button has anywhere to go,
 		// and a deferred script runs before DOMContentLoaded rather than after
@@ -709,7 +755,8 @@
 	}
 
 	global.SitePalette = {
-		mount: mount, open: open, fold: fold, prepare: prepare, pick: pick
+		mount: mount, open: open, fold: fold, prepare: prepare, pick: pick,
+		say: SAY
 	};
 
 	// Attached with a tag and configured by its attributes — the whole of the

@@ -80,10 +80,24 @@ there is no contract left.
 
 `shards` names other indexes to be searched alongside this one. Each is
 described by the same fields as a source in `mount()`: `url`, and optionally
-`section`, `order`, `defer`, `precompressed`.
+`section`, `named`, `order`, `defer`, `precompressed`.
 
 This is how the builder decides what the site is made of, rather than every
 search page restating it: a page names one index and the rest follows.
+
+`named` is the same name in other languages, keyed by language tag:
+
+```json
+{ "url": "/ksh/ta/search-index.json",
+  "section": "Кашмирский шиваизм",
+  "named": { "en": "Kashmir Shaivism" } }
+```
+
+A page names its own language and can therefore be given its section's name in
+it, once, by the builder. A source cannot: it is one file, and every reader is
+handed the same one. So the reader's language picks the name here instead, and
+`section` stays the name for everybody whose language is not in `named` —
+including a reader of an older index, which has none.
 
 `defer` holds off loading until the first query — a megabyte of book has no
 business travelling to someone who is only passing through.

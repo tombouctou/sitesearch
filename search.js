@@ -341,6 +341,23 @@
 		return frag;
 	}
 
+	/* --- what the search says about itself ---------------------------------
+	 *
+	 * The reader is told how the search went in the language they are reading
+	 * in — the same `lang` by which the results themselves were chosen. A page
+	 * whose text is English and whose status line reads «Ничего не нашлось»
+	 * is half a translation, and the half that shows is the half nobody did.
+	 *
+	 * A language the table does not hold falls back to Russian. That is what
+	 * every page got when there was no table at all, and a site that has been
+	 * reading these words for a year should not find them changed by the
+	 * arrival of a column meant for somebody else. A third language is a third
+	 * column here and nothing else: no call site names a language.
+	 *
+	 * Everything that counts goes in as a function, because counting is the
+	 * language's own business — Russian has three plural forms, English two —
+	 * and so does everything that puts a word inside a sentence.
+	 */
 	function plural(n, one, few, many) {
 		var a = n % 100, b = n % 10;
 		if (a > 10 && a < 20) return many;
@@ -348,6 +365,51 @@
 		if (b >= 2 && b <= 4) return few;
 		return many;
 	}
+
+	var SAY = {
+		ru: {
+			more: 'Показать ещё',
+			page: 'Страница',
+			hits: function (n) {
+				return n + ' ' + plural(n, 'совпадение', 'совпадения', 'совпадений');
+			},
+			none: 'Ничего не нашлось.',
+			notYet: 'Пока ничего не нашлось.',
+			firstOf: function (n) { return ', показаны первые ' + n; },
+			instead: function (w) {
+				return 'такого слова в тексте нет, показано по «' + w + '»';
+			},
+			kin: 'точной формы в тексте нет, это однокоренные слова',
+			loading: 'Загружаю указатель…',
+			searching: 'ищу дальше…',
+			reading: 'читаю дальше…',
+			unread: 'прочитано не всё',
+			broken: function (where) {
+				return 'не удалось загрузить указатель' + (where ? ' (' + where + ')' : '');
+			},
+			holes: function (n) { return 'часть текста не загрузилась (' + n + ')'; }
+		},
+		en: {
+			more: 'Show more',
+			page: 'Page',
+			hits: function (n) { return n + (n === 1 ? ' match' : ' matches'); },
+			none: 'Nothing found.',
+			notYet: 'Nothing found yet.',
+			firstOf: function (n) { return ', first ' + n + ' shown'; },
+			instead: function (w) {
+				return 'no such word in the text, showing “' + w + '”';
+			},
+			kin: 'that exact form is not in the text, these share its root',
+			loading: 'Fetching the index…',
+			searching: 'still looking…',
+			reading: 'still reading…',
+			unread: 'not all of it read',
+			broken: function (where) {
+				return 'an index would not load' + (where ? ' (' + where + ')' : '');
+			},
+			holes: function (n) { return 'some of the text did not load (' + n + ')'; }
+		}
+	};
 
 	/* A language, cut down to what two of them can be compared by. The reader's
 	   arrives from <html lang>, where it is a full tag — "en-US", "ru-RU" — and
@@ -381,7 +443,7 @@
 				// Which language the page is written in, where a site keeps the
 				// same page in several. Absent means "everybody's".
 				lang: tongue(p.lang),
-				section: spec.section || p.section || null,
+				section: called(spec) || p.section || null,
 				order: typeof p.order === 'number' ? p.order : (spec.order || 0),
 				blocks: (p.blocks || [])
 					.map(function (b) { return typeof b === 'string' ? { text: b } : b; })
@@ -492,6 +554,20 @@
 		var lang = tongue(opts.lang !== undefined ? opts.lang
 			: document.documentElement.getAttribute('lang'));
 
+		// The words this search says about itself, in that same language.
+		// Picked once: a page does not change language under the reader.
+		var say_ = SAY[lang] || SAY.ru;
+
+		/* What a source calls the part of the site it holds. Its pages name
+		   their own language and can therefore name their own section in it;
+		   a source cannot, being one file serving every reader alike. So a
+		   site that publishes in two languages writes the name in both, and
+		   `section` stays the name for everybody else — including a reader
+		   whose language nobody wrote down. */
+		function called(spec) {
+			return (spec.named && spec.named[lang]) || spec.section || null;
+		}
+
 		/* Reading stops before the end more often than not, so there has to be
 		   a way to ask for the rest. The control sits outside the list: it is
 		   not a result, and a list of results is no place to say so.
@@ -503,7 +579,7 @@
 		more.hidden = true;
 		var button = document.createElement('button');
 		button.type = 'button';
-		button.textContent = 'Показать ещё';
+		button.textContent = say_.more;
 		button.addEventListener('click', function () {
 			reach += 3 * REACH;
 			allowed += 2 * READ;
@@ -569,7 +645,7 @@
 					title: p.title,
 					also: p.also || null,
 					lang: tongue(p.lang),
-					section: src.spec.section || p.section || null,
+					section: called(src.spec) || p.section || null,
 					order: typeof p.order === 'number' ? p.order : (src.spec.order || 0),
 					blocks: new Array(n),
 				};
@@ -743,7 +819,7 @@
 		// to say which part of the site it belongs to.
 		function pageResult(doc, ts) {
 			var el = item();
-			el.where.textContent = doc.section || 'Страница';
+			el.where.textContent = doc.section || say_.page;
 			var a = document.createElement('a');
 			a.href = doc.url;
 			a.appendChild(snippet(doc.title, ts));
@@ -1141,28 +1217,25 @@
 			var found = r.found, shown = r.shown;
 
 			var say = found
-				? found + ' ' + plural(found, 'совпадение', 'совпадения', 'совпадений')
-				: (loading || busy ? '' : (left.length ? 'Пока ничего не нашлось.' : 'Ничего не нашлось.'));
-			if (found > shown) say += ', показаны первые ' + shown;
+				? say_.hits(found)
+				: (loading || busy ? '' : (left.length ? say_.notYet : say_.none));
+			if (found > shown) say += say_.firstOf(shown);
 			// Naming the word beats calling it a relative: the reader is told
 			// the spelling that is actually on the site, and can see at a
 			// glance whether it is the word they meant.
-			if (said) say += (say ? ' · ' : '') + 'такого слова в тексте нет, показано по «' + said.to + '»';
-			else if (widened) say += (say ? ' · ' : '') + 'точной формы в тексте нет, это однокоренные слова';
+			if (said) say += (say ? ' · ' : '') + say_.instead(said.to);
+			else if (widened) say += (say ? ' · ' : '') + say_.kin;
 			// Until some index has arrived there is nothing to search; once part
 			// of it is in hand, its results are shown while the rest loads.
-			if (loading) say += (say ? ' · ' : '') + (ready ? 'ищу дальше…' : 'Загружаю указатель…');
-			else if (busy) say += (say ? ' · ' : '') + 'читаю дальше…';
+			if (loading) say += (say ? ' · ' : '') + (ready ? say_.searching : say_.loading);
+			else if (busy) say += (say ? ' · ' : '') + say_.reading;
 			// Reading stopped short of the end on purpose, and saying so is the
 			// price of stopping: a count that looks final and is not would be
 			// worse than no count.
-			else if (left.length) say += (say ? ' · ' : '') + 'прочитано не всё';
-			if (broken.length) {
-				say += (say ? ' · ' : '') + 'не удалось загрузить указатель' +
-					(broken[0].spec.section ? ' (' + broken[0].spec.section + ')' : '');
-			}
+			else if (left.length) say += (say ? ' · ' : '') + say_.unread;
+			if (broken.length) say += (say ? ' · ' : '') + say_.broken(called(broken[0].spec));
 			var holes = sources.reduce(function (n, src) { return n + (src.holes || 0); }, 0);
-			if (holes) say += (say ? ' · ' : '') + 'часть текста не загрузилась (' + holes + ')';
+			if (holes) say += (say ? ' · ' : '') + say_.holes(holes);
 			status.textContent = say;
 
 			/* Reading stops for good once the list is full: the hundredth
@@ -1218,7 +1291,7 @@
 	   table would agree until the day somebody edited one of them, and the map
 	   would then quietly stop naming the chunks it should (node/two-tier.js).
 	   Hence one copy, in the file the browser loads anyway. */
-	global.SiteSearch = { mount: mount, fold: norm };
+	global.SiteSearch = { mount: mount, fold: norm, say: SAY };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
 
 // Node reads this file for the fold alone; nothing above touches the document

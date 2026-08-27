@@ -105,8 +105,25 @@ is nothing but noise to be had from it.
 {%- assign parts = p.url | split: '/' -%}
 {%- assign seg = parts[1] -%}
 {%- assign plang = p.lang | default: site.lang -%}
+{%- comment -%}
+A translation lives under its language — /en/ksh/ta/ — and belongs to the same
+section as the page it was translated from: a book does not change what part of
+the site it is in by being read in another language. Only a first segment that
+is the page's own language is skipped, so a section named "en" would still be
+found, and a page that says nothing about its language keeps whatever segment
+it has.
+{%- endcomment -%}
+{%- if plang and seg == plang and parts.size > 2 -%}
+{%- assign seg = parts[2] -%}
+{%- endif -%}
 {%- assign sec = conf.sections[seg] -%}
-{%- assign sectitle = sec.title | default: conf.default.title -%}
+{%- comment -%}
+The section is named in the language of the page under it: over an English
+result «Кашмирский шиваизм» is the one Russian line on the page, and the reader
+it is shown to cannot read it. `title` is the name for every language nobody
+wrote down, `named` holds the rest.
+{%- endcomment -%}
+{%- assign sectitle = sec.named[plang] | default: sec.title | default: conf.default.named[plang] | default: conf.default.title -%}
 {%- assign secorder = sec.order | default: conf.default.order | default: 99 -%}
 {%- unless firstpage %},{% endunless -%}
 {%- assign firstpage = false -%}
