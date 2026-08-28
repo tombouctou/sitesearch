@@ -408,6 +408,28 @@
 				return 'an index would not load' + (where ? ' (' + where + ')' : '');
 			},
 			holes: function (n) { return 'some of the text did not load (' + n + ')'; }
+		},
+		uk: {
+			more: 'Показати ще',
+			page: 'Сторінка',
+			hits: function (n) {
+				return n + ' ' + plural(n, 'збіг', 'збіги', 'збігів');
+			},
+			none: 'Нічого не знайшлося.',
+			notYet: 'Поки нічого не знайшлося.',
+			firstOf: function (n) { return ', показано перші ' + n; },
+			instead: function (w) {
+				return 'такого слова в тексті немає, показано за «' + w + '»';
+			},
+			kin: 'точної форми в тексті немає, це спільнокореневі слова',
+			loading: 'Завантажую покажчик…',
+			searching: 'шукаю далі…',
+			reading: 'читаю далі…',
+			unread: 'прочитано не все',
+			broken: function (where) {
+				return 'не вдалося завантажити покажчик' + (where ? ' (' + where + ')' : '');
+			},
+			holes: function (n) { return 'частина тексту не завантажилася (' + n + ')'; }
 		}
 	};
 

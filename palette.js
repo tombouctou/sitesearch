@@ -229,6 +229,18 @@
 			tip: function (label, combo) { return label + ' — ' + combo + ' or /'; },
 			label: 'Jump to a section',
 			placeholder: 'Where to? The name of a section or a page'
+		},
+		uk: {
+			list: 'Розділи',
+			onward: function (where) { return ' Повний пошук за текстом — на ' + where; },
+			none: 'Нічого не знайшлося.',
+			coming: 'Покажчик ще їде…',
+			start: 'Почніть вводити назву розділу або сторінки.',
+			toText: 'Жодна назва не збігається. Шукаю в тексті…',
+			broken: 'Покажчик не завантажився.',
+			tip: function (label, combo) { return label + ' — ' + combo + ' або /'; },
+			label: 'Перехід до розділу',
+			placeholder: 'Куди йдемо? Назва розділу або сторінки'
 		}
 	};
 
