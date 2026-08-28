@@ -454,7 +454,21 @@
 	   without touching the index. Order still belongs to the page where the
 	   page knows it: sections are listed in the builder, and there is nothing
 	   here to argue with that. */
-	function documentsOf(data, spec) {
+	/* What a source calls the part of the site it holds. Its pages name their
+	   own language and can therefore name their own section in it; a source
+	   cannot, being one file serving every reader alike. So a site that
+	   publishes in two languages writes the name in both, and `section` stays
+	   the name for everybody else — including a reader whose language nobody
+	   wrote down.
+
+	   The reader's language comes in as an argument rather than off a variable
+	   held above: this stands beside `documentsOf`, outside `mount`, and a flat
+	   index is read here before any mount exists to ask. */
+	function called(spec, lang) {
+		return (spec.named && spec.named[lang]) || spec.section || null;
+	}
+
+	function documentsOf(data, spec, lang) {
 		return (data.pages || []).map(function (p) {
 			return {
 				url: p.url,
@@ -465,7 +479,7 @@
 				// Which language the page is written in, where a site keeps the
 				// same page in several. Absent means "everybody's".
 				lang: tongue(p.lang),
-				section: called(spec) || p.section || null,
+				section: called(spec, lang) || p.section || null,
 				order: typeof p.order === 'number' ? p.order : (spec.order || 0),
 				blocks: (p.blocks || [])
 					.map(function (b) { return typeof b === 'string' ? { text: b } : b; })
@@ -580,16 +594,6 @@
 		// Picked once: a page does not change language under the reader.
 		var say_ = SAY[lang] || SAY.ru;
 
-		/* What a source calls the part of the site it holds. Its pages name
-		   their own language and can therefore name their own section in it;
-		   a source cannot, being one file serving every reader alike. So a
-		   site that publishes in two languages writes the name in both, and
-		   `section` stays the name for everybody else — including a reader
-		   whose language nobody wrote down. */
-		function called(spec) {
-			return (spec.named && spec.named[lang]) || spec.section || null;
-		}
-
 		/* Reading stops before the end more often than not, so there has to be
 		   a way to ask for the rest. The control sits outside the list: it is
 		   not a result, and a list of results is no place to say so.
@@ -667,7 +671,7 @@
 					title: p.title,
 					also: p.also || null,
 					lang: tongue(p.lang),
-					section: called(src.spec) || p.section || null,
+					section: called(src.spec, lang) || p.section || null,
 					order: typeof p.order === 'number' ? p.order : (src.spec.order || 0),
 					blocks: new Array(n),
 				};
@@ -777,7 +781,7 @@
 			src.started = true;
 			index(src.spec)
 				.then(function (data) {
-					var docs = data.tier === 2 ? spread(src, data) : documentsOf(data, src.spec);
+					var docs = data.tier === 2 ? spread(src, data) : documentsOf(data, src.spec, lang);
 					// Furniture repeated across pages is cut by the two-tier
 					// builder before it is ever sent; counting it here would
 					// need the very text that has not arrived.
@@ -1255,7 +1259,7 @@
 			// price of stopping: a count that looks final and is not would be
 			// worse than no count.
 			else if (left.length) say += (say ? ' · ' : '') + say_.unread;
-			if (broken.length) say += (say ? ' · ' : '') + say_.broken(called(broken[0].spec));
+			if (broken.length) say += (say ? ' · ' : '') + say_.broken(called(broken[0].spec, lang));
 			var holes = sources.reduce(function (n, src) { return n + (src.holes || 0); }, 0);
 			if (holes) say += (say ? ' · ' : '') + say_.holes(holes);
 			status.textContent = say;
