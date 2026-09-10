@@ -71,16 +71,37 @@
 	var MARK = /[̀-ͯ]/g;
 	var VOCALIC = { 'ṛ': 'ri', 'ṝ': 'ri', 'Ṛ': 'ri', 'Ṝ': 'ri' };
 
+	/* The fold above is one of two, and the site says which it wants.
+
+	   Carrying Cyrillic across to Latin is right where one word is written
+	   both ways, and wrong everywhere else: it puts «ш», «щ» and «с» on the
+	   same letter, so on a site whose texts are simply in Russian «шаг» begins
+	   to find «саг» and «щит» finds «сито». A site like that asks for `plain`,
+	   and gets a fold that only lowers the case, reads «ё» as «е» and takes
+	   the diacritics off — nothing crosses alphabets, and nothing collides
+	   that did not collide in the text itself.
+
+	   Which fold is in force is a property of the site, not of a query: the
+	   words of a two-tier map are folded once, when it is built, and a query
+	   folded by the other rule would look for them in vain. So an index says
+	   which fold it was built with (FORMAT.md), `mount` may say it outright,
+	   and the two disagreeing is worth a word in the console rather than a
+	   silent miss. */
+	var SANSKRIT = 'sanskrit', PLAIN = 'plain';
+	var FOLD = SANSKRIT;
+
 	/* The folded text, and for every letter of it the place in the original it
 	   was folded from — one more entry at the end for the end of the string.
 	   Only the highlighting needs the second half, so the map is built on
 	   request: it costs an array as long as the text, and the text of a site
 	   is folded whole on the first query. */
-	function foldMap(s, want) {
+	function foldMap(s, want, how) {
+		var plain = (how || FOLD) === PLAIN;
 		var out = '', map = want ? [] : null, n = s.length;
 		for (var i = 0; i < n; i++) {
 			var c = s.charAt(i).toLowerCase(), took = 1, piece;
-			if (VOCALIC[c] !== undefined) piece = VOCALIC[c];
+			if (plain) piece = (c === 'ё' ? 'е' : c).normalize('NFD').replace(MARK, '');
+			else if (VOCALIC[c] !== undefined) piece = VOCALIC[c];
 			else if (c === 'д' && s.charAt(i + 1).toLowerCase() === 'ж') { piece = 'j'; took = 2; }
 			else if (c === 'ь' || c === 'ъ') piece = GLIDED.test(s.charAt(i + 1).toLowerCase()) ? 'y' : '';
 			else if (c === 'я' || c === 'ю') {
@@ -105,8 +126,8 @@
 		return { text: out, map: map };
 	}
 
-	function norm(s) {
-		return foldMap(s, false);
+	function norm(s, how) {
+		return foldMap(s, false, how);
 	}
 
 	/* A match begins where a word begins. Otherwise «страх» (fear) is
@@ -137,13 +158,15 @@
 	   (suffering). It also shows why a list of endings will not serve: «страх»
 	   ends in «ах» and would be cut back to «стр».
 
-	   The rungs are cut off the folded word, so the vowels here are the Latin
-	   ones the fold leaves behind: «ю» arrives as "u", «я» as "a", and «ь» has
-	   already gone. Which ladder to climb is decided by the word as it was
+	   The rungs are cut off the folded word, so with the Sanskrit fold the
+	   vowels here are the Latin ones it leaves behind: «ю» arrives as "u",
+	   «я» as "a", and «ь» has already gone. The plain fold leaves Cyrillic
+	   where it was, so its vowels have to be in the list as well — the rule is
+	   the same rule, only the alphabet it meets differs. Which ladder to climb is decided by the word as it was
 	   typed, not as it was folded — after the fold every Russian word looks
 	   like a Latin one, and the English rule would then cut «голос» down to
 	   "golo". */
-	var SOFT = /[aeiouy]$/;
+	var SOFT = /[aeiouyаеёиоуыэюя]$/;
 	var PLURAL = /[a-z]{4,}s$/;
 
 	/* Cyrillic writes the vowel ṛ as «ри» and the fold follows it there, so
@@ -170,7 +193,9 @@
 	function ladder(t, cyrillic) {
 		// In English one "s" serves the purpose of the Russian endings.
 		var v = !cyrillic && PLURAL.test(t) ? [t, t.slice(0, -1)] : rungs(t);
-		var also = vocalic(t);
+		// "nrtta" beside "nritta" is a spelling of Sanskrit, and only the fold
+		// that romanises it can produce the pair at all.
+		var also = FOLD === PLAIN ? null : vocalic(t);
 		if (also) v = v.concat(rungs(also));
 		return v;
 	}
@@ -537,6 +562,31 @@
 		var showSection = opts.showSection !== false;
 		var repeats = opts.repeats || 0;
 
+		/* Which fold this site wants. Said here it settles the matter; left
+		   unsaid, the first index that declares one settles it, and any later
+		   index declaring another is a mistake somebody has to hear about —
+		   two folds cannot search one query. */
+		if (opts.fold === PLAIN || opts.fold === SANSKRIT) FOLD = opts.fold;
+		var told = opts.fold === PLAIN || opts.fold === SANSKRIT;
+
+		function agree(data, url) {
+			var says = data && data.fold;
+			if (says !== PLAIN && says !== SANSKRIT) return;
+			if (told) {
+				if (says !== FOLD && global.console) {
+					// In English, and to the console: this is for whoever built
+					// the site, not for whoever is reading it — the reader's
+					// own words live in SAY and are handed to them in their
+					// language.
+					console.warn('sitesearch: ' + url + ' was folded as "' + says +
+						'", but the search is set to "' + FOLD + '"');
+				}
+				return;
+			}
+			FOLD = says;
+			told = true;
+		}
+
 		/* A search that is the page's own owns the address bar: the query
 		   belongs in it, so that a result can be linked to and a reload comes
 		   back to the same search. A search mounted inside something else —
@@ -755,6 +805,10 @@
 			src.started = true;
 			index(src.spec)
 				.then(function (data) {
+					// Before anything is folded: the map of a two-tier index
+					// was folded when it was built, and a query has to meet it
+					// with the same rule.
+					agree(data, src.spec.url);
 					var docs = data.tier === 2 ? spread(src, data) : documentsOf(data, src.spec);
 					// Furniture repeated across pages is cut by the two-tier
 					// builder before it is ever sent; counting it here would
@@ -1291,7 +1345,11 @@
 	   table would agree until the day somebody edited one of them, and the map
 	   would then quietly stop naming the chunks it should (node/two-tier.js).
 	   Hence one copy, in the file the browser loads anyway. */
-	global.SiteSearch = { mount: mount, fold: norm, say: SAY };
+	/* The fold is handed out with the mode it should use, because the builder
+	   needs the very same one and does not go through `mount`: `--fold plain`
+	   there and `fold: 'plain'` here have to be one rule, or a two-tier map
+	   stops naming the chunks it ought to. */
+	global.SiteSearch = { mount: mount, fold: norm, folds: { plain: PLAIN, sanskrit: SANSKRIT }, say: SAY };
 })(typeof globalThis !== 'undefined' ? globalThis : window);
 
 // Node reads this file for the fold alone; nothing above touches the document

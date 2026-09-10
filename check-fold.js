@@ -17,6 +17,10 @@
  *
  * The words are the ones a fold breaks on: a letter that depends on its
  * neighbour, Cyrillic met with diacritics, «дж» read as one sound.
+ *
+ * Both folds are checked, not just the one a site happens to use: `plain`
+ * exists for sites whose texts are simply Russian, and a copy diverges as
+ * quietly there as anywhere else.
  */
 'use strict';
 
@@ -35,14 +39,36 @@ const WORDS = [
 	'джханы', 'саматха-джханы', 'Часть 3', 'ヴィッし home page',
 ];
 
-let bad = 0;
-for (const w of WORDS) {
-	const a = search.fold(w), b = palette.fold(w);
-	if (a !== b) {
-		console.log('   ✗ %s → search.js «%s», palette.js «%s»', w, a, b);
-		bad++;
+let bad = 0, ran = 0;
+for (const how of ['sanskrit', 'plain']) {
+	for (const w of WORDS) {
+		ran++;
+		const a = search.fold(w, how), b = palette.fold(w, how);
+		if (a !== b) {
+			console.log('   ✗ [%s] %s → search.js «%s», palette.js «%s»', how, w, a, b);
+			bad++;
+		}
 	}
 }
 
-console.log('Свёртка: сошлось %d из %d', WORDS.length - bad, WORDS.length);
+/* The plain fold has one thing to prove of its own: that it leaves the
+   alphabet alone. A fold that carried Cyrillic to Latin would put these pairs
+   on one string, and the site that asked for `plain` asked precisely so that
+   «шаг» would not find «саг». */
+const APART = [['шаг', 'саг'], ['щит', 'сит'], ['мял', 'мал'], ['юг', 'уг'], ['ясно', 'асно']];
+for (const [a, b] of APART) {
+	ran++;
+	if (search.fold(a, 'plain') === search.fold(b, 'plain')) {
+		console.log('   ✗ [plain] «%s» и «%s» свернулись в одно', a, b);
+		bad++;
+	}
+}
+// And that «ё» is still «е»: it is the one letter the plain fold does touch.
+ran++;
+if (search.fold('ёлка', 'plain') !== search.fold('елка', 'plain')) {
+	console.log('   ✗ [plain] «ёлка» и «елка» разошлись');
+	bad++;
+}
+
+console.log('Свёртка: сошлось %d из %d', ran - bad, ran);
 process.exit(bad ? 1 : 0);

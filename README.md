@@ -65,6 +65,7 @@ for the site's stylesheet to say.
 | `sources`      | indexes to start from; the rest arrive through their `shards`            |
 | `showSection`  | `false` — don't repeat the section over every result (search inside one book) |
 | `repeats`      | `4` — drop a paragraph standing word for word on four pages or more      |
+| `fold`         | `'plain'` — do not carry Cyrillic across to Latin (see **Two folds**) |
 | `lang`         | which language the reader is in; taken from the page's own `lang` unless given |
 | `address`      | `false` — leave the page's address alone: the search is not the page's own |
 | `more`         | `false` — no "показать ещё" control; the host has nowhere to put one     |
@@ -78,6 +79,37 @@ drives `render` itself, so that nothing is searched until it says so.
 Jekyll has neither regular expressions nor a way to count repeats. Where the
 builder does cut it, the rule would only walk the index for nothing, so it is
 off by default.
+
+## Two folds
+
+Before anything is compared, both sides are folded: the case goes, and so do
+the diacritics. What happens to the alphabets is the site's to choose.
+
+`sanskrit`, the default, carries Cyrillic across to Latin. On a site about
+Sanskrit one word is written both ways — `śaktipāta` in one chapter,
+«шактипата» in the next — and to the reader that is one word, so the two have
+to meet at the same letters.
+
+`plain` leaves the alphabets alone: the case, «ё» read as «е», the diacritics
+off, nothing else. A site whose texts are simply in Russian wants this one,
+because romanising puts «ш», «щ» and «с» on the same letter — and then «шаг»
+finds «саг», and «щит» finds «сито».
+
+Which fold is in force belongs to the site rather than to a query: the words of
+a two-tier map are folded once, when it is built, and a query folded by the
+other rule would look for them in vain. So the builder is told —
+
+```sh
+node node/two-tier.js _site /search-index.json --fold plain
+```
+
+— the map it writes carries `"fold": "plain"` to the browser, and the engine
+adopts it on loading. `mount({ fold: 'plain' })` says it outright, for a flat
+index built by something else; a site that says one thing and serves an index
+built the other way gets a line in the console rather than a silent miss.
+
+The palette folds the same way, and is told the same thing:
+`data-fold="plain"`.
 
 ## Jumping to a section
 

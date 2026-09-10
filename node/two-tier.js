@@ -41,8 +41,14 @@ const CHUNK = 32;
    up in it folded the same way. So the fold is not copied here but taken from
    the engine itself: two tables would agree until one of them was edited, and
    the map would then stop naming chunks it ought to name — a miss, which is
-   the one thing the map may never do (FORMAT.md). */
-const { fold: norm } = require('../search.js');
+   the one thing the map may never do (FORMAT.md).
+
+   There are two folds, and which one built a map cannot be guessed from
+   looking at it: `--fold plain` says so here, and the map then carries the
+   answer to the browser itself, so that a site cannot fold its words one way
+   and its queries the other. An index that already declares a fold keeps it —
+   the flag is for the first conversion, not for overruling the data. */
+const { fold, folds } = require('../search.js');
 
 // The same word boundary the engine matches on: a query term is found where a
 // word begins, so a word is a run of the letters and digits it may begin with.
@@ -108,6 +114,10 @@ function deltas(list) {
 
 function split(index, opts = {}) {
 	const chunkSize = opts.chunk || CHUNK;
+	// Одна свёртка на весь проход: слова карты и запросы, которые по ней потом
+	// ищут, должны быть свёрнуты одним правилом.
+	const how = index.fold || opts.fold || folds.sanskrit;
+	const norm = (s) => fold(s, how);
 	/* The fields are named one by one rather than copied wholesale: what
 	   travels to the browser is what the engine reads, and whatever a builder
 	   kept for itself has no business making the journey. The price is that a
@@ -160,6 +170,7 @@ function split(index, opts = {}) {
 
 	const map = {
 		tier: 2,
+		fold: how === folds.sanskrit ? undefined : how,
 		text: opts.text,
 		chunk: chunkSize,
 		pages: pages.map((p) => ({
@@ -200,7 +211,10 @@ function convert(root, url, opts, seen) {
 	const base = path.basename(url).replace(/\.json$/, '');
 	const dir = path.dirname(url) + (path.dirname(url).endsWith('/') ? '' : '/') + base + '-text/';
 
-	const out = split(index, { chunk: opts.chunk, repeats: opts.repeats, text: base + '-text/' });
+	const out = split(index, {
+		chunk: opts.chunk, repeats: opts.repeats, fold: opts.fold,
+		text: base + '-text/',
+	});
 
 	fs.mkdirSync(toFile(root, dir), { recursive: true });
 	let textBytes = 0;
@@ -226,13 +240,19 @@ if (require.main === module) {
 	const positional = args.filter((a, i) => !a.startsWith('--') && !(i > 0 && args[i - 1].startsWith('--')));
 	const [root, entry] = positional;
 	if (!root || !entry) {
-		console.error('usage: node node/two-tier.js <site root> <index url> [--chunk 32] [--repeats 4] [--brotli 1]');
+		console.error('usage: node node/two-tier.js <site root> <index url> ' +
+			'[--chunk 32] [--repeats 4] [--brotli 1] [--fold plain]');
 		process.exit(2);
 	}
+	const word = (name, dflt) => {
+		const i = args.indexOf('--' + name);
+		return i === -1 ? dflt : args[i + 1];
+	};
 	convert(root, entry, {
 		chunk: flag('chunk', CHUNK),
 		repeats: flag('repeats', 0),
 		brotli: flag('brotli', 0) ? undefined : false,
+		fold: word('fold', undefined),
 	}, new Set());
 }
 

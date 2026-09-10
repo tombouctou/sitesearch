@@ -62,11 +62,23 @@
 	var MARK = /[̀-ͯ]/g;
 	var VOCALIC = { 'ṛ': 'ri', 'ṝ': 'ri', 'Ṛ': 'ri', 'Ṝ': 'ri' };
 
-	function fold(s) {
+	/* Two folds, as in search.js and for the same reason: carrying Cyrillic to
+	   Latin is right where one word is written both ways and wrong where the
+	   text is simply Russian, because it puts «ш», «щ» and «с» on one letter.
+	   `data-fold="plain"` asks for the other one — case, «ё» as «е», and the
+	   diacritics off. The palette searches the names of pages rather than
+	   their text, but a name is written in the same alphabet as the text under
+	   it, so the two files must offer the same choice. */
+	var SANSKRIT = 'sanskrit', PLAIN = 'plain';
+	var FOLD = SANSKRIT;
+
+	function fold(s, how) {
+		var plain = (how || FOLD) === PLAIN;
 		var out = '', n = s.length;
 		for (var i = 0; i < n; i++) {
 			var c = s.charAt(i).toLowerCase(), took = 1, piece;
-			if (VOCALIC[c] !== undefined) piece = VOCALIC[c];
+			if (plain) piece = (c === 'ё' ? 'е' : c).normalize('NFD').replace(MARK, '');
+			else if (VOCALIC[c] !== undefined) piece = VOCALIC[c];
 			else if (c === 'д' && s.charAt(i + 1).toLowerCase() === 'ж') { piece = 'j'; took = 2; }
 			else if (c === 'ь' || c === 'ъ') piece = GLIDED.test(s.charAt(i + 1).toLowerCase()) ? 'y' : '';
 			else if (c === 'я' || c === 'ю') {
@@ -717,6 +729,9 @@
 	 * where search.js lives, and defaults to next door to this file. */
 	function mount(opts) {
 		if (conf) return;                       // one palette to a page
+		// Which fold this site wants; the search on the same site is told the
+		// same thing, and the two agreeing is the whole point of check-fold.js.
+		if (opts.fold === PLAIN || opts.fold === SANSKRIT) FOLD = opts.fold;
 		// The page already declares its language, for the browser and for
 		// search engines. Reading it here rather than asking a site to repeat
 		// it keeps the two from falling out of step. It is read before `conf`
@@ -772,6 +787,7 @@
 				searchIndex: d.searchIndex,
 				searchPrecompressed: d.searchPrecompressed === 'true',
 				engine: d.engine || (here ? here.replace(/[^/]*$/, 'search.js') : null),
+				fold: d.fold,
 				label: d.label, placeholder: d.placeholder
 			});
 		}

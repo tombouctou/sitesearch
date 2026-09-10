@@ -7,6 +7,7 @@ is that border.
 
 ```json
 {
+  "fold": "plain",
   "pages": [
     {
       "url": "/links/math/",
@@ -25,6 +26,20 @@ is that border.
   ]
 }
 ```
+
+## The index
+
+| field    | required | what it is                                                     |
+|----------|----------|-----------------------------------------------------------------|
+| `pages`  | yes      | the pages this index holds                                      |
+| `fold`   | no       | how its words were folded: `plain` or `sanskrit` (the default)  |
+| `shards` | no       | further indexes to search alongside this one                    |
+
+`fold` matters most where it is not visible: a two-tier map is a list of words
+as they were folded when it was built, and a query folded by the other rule
+would look for them in vain. A flat index may declare it too, and then a site
+cannot misconfigure the search around it. Absent means `sanskrit`, which is
+what every index built before this field was.
 
 ## A page
 
