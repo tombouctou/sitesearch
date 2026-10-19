@@ -423,9 +423,17 @@
 		box.setAttribute('role', 'dialog');
 		box.setAttribute('aria-modal', 'true');
 		box.setAttribute('aria-label', conf.label);
+		/* What tells password managers to stay out of the field: 1Password's,
+		   LastPass's, Bitwarden's and Dashlane's own attributes. iCloud
+		   Passwords reads none of them, nor `autocomplete="off"`, nor a form
+		   with `role="search"` — measured: on an origin it has not seen, it
+		   offers "Enable Password AutoFill" on the first text field focused,
+		   whatever that field says of itself. That one is `unfilled` below. */
 		box.innerHTML =
 			'<div id="nav-box">' +
-			'<input id="nav-q" type="search" autocomplete="off" spellcheck="false" ' +
+			'<input id="nav-q" type="search" autocomplete="off" autocorrect="off" ' +
+			'autocapitalize="off" spellcheck="false" enterkeyhint="go" ' +
+			'data-1p-ignore="true" data-lpignore="true" data-bwignore="true" data-form-type="other" ' +
 			'role="combobox" aria-expanded="true" aria-controls="nav-list" />' +
 			'<ul id="nav-list" role="listbox"></ul>' +
 			'<p id="nav-note"></p></div>';
@@ -617,13 +625,37 @@
 		location.href = url;
 	}
 
+	/* Focus a field without iCloud Passwords taking it for a sign-in. Its
+	   extension looks at a field the moment it gains focus and offers itself
+	   over any text field that is not read-only then — ⌘K opened the palette
+	   under "Enable Password AutoFill". So the field is read-only for the
+	   instant of focus and writable straight after, or at the first key,
+	   whichever comes sooner. Only where there is a mouse: the extension is a
+	   desktop one, and a phone does not raise its keyboard for a field that
+	   was read-only when it was focused. */
+	var FINE = global.matchMedia && global.matchMedia('(pointer: fine)').matches;
+
+	function unfilled(field) {
+		if (!FINE) { field.focus(); return; }
+		field.readOnly = true;
+		field.focus();
+		setTimeout(writable, 30);
+		// A key pressed sooner still lands: the field opens before the key
+		// is typed into it.
+		field.addEventListener('keydown', writable);
+		function writable() {
+			field.readOnly = false;
+			field.removeEventListener('keydown', writable);
+		}
+	}
+
 	function open() {
 		if (!box) build();
 		opener = document.activeElement;
 		box.classList.add('on');
 		input.value = '';
 		render('');
-		input.focus();
+		unfilled(input);
 		load().then(function (ok) {
 			if (!box.classList.contains('on')) return;
 			if (!ok) { note(elsewhere(conf.say.broken)); return; }

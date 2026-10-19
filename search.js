@@ -1136,6 +1136,34 @@
 		more.appendChild(button);
 		if (opts.more !== false && results.parentNode) results.parentNode.insertBefore(more, results.nextSibling);
 
+		/* iCloud Passwords offers "Enable Password AutoFill" over the first
+		   text field a page focuses, whatever the field says of itself —
+		   `autocomplete="off"`, `type="search"` and the attributes other
+		   password managers read (set here too) are not looked at. What it
+		   does respect is a field that is read-only at the moment of focus.
+		   So the box is, until it is first focused, and writable straight
+		   after, or at the first key, whichever comes sooner. Only where
+		   there is a mouse — the extension is a desktop one, and a phone does
+		   not raise its keyboard for a field that was read-only when tapped.
+		   palette.js does the same for its own field. */
+		['data-1p-ignore', 'data-lpignore', 'data-bwignore'].forEach(function (a) { input.setAttribute(a, 'true'); });
+		input.setAttribute('data-form-type', 'other');
+		var fine = global.matchMedia && global.matchMedia('(pointer: fine)').matches;
+		if (fine && document.activeElement !== input && !input.readOnly) {
+			input.readOnly = true;
+			var writable = function () {
+				input.readOnly = false;
+				input.removeEventListener('keydown', writable);
+			};
+			input.addEventListener('focus', function once() {
+				input.removeEventListener('focus', once);
+				setTimeout(writable, 30);
+			});
+			// A key pressed sooner still lands: the field opens before the key
+			// is typed into it.
+			input.addEventListener('keydown', writable);
+		}
+
 		/* The symbol helper (symbols.js), where the page has loaded it: a site
 		   of formulas puts it beside the box, and a site with none does not
 		   load the file. `symbols: false` keeps it off a field all the same. */
