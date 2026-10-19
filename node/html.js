@@ -36,6 +36,56 @@ function text(html) {
 	return clean(html.replace(/<[^>]*>/g, ' '));
 }
 
+/* Formulas, from whatever markup they came in, as the TeX they were written in
+   between `\(…\)` or `\[…\]` — the one markup FORMAT.md lets into the text,
+   because it is what a formula is searched by and drawn from (search.js folds
+   `\mu` and `μ` to one spelling and matches inside it with its spaces gone).
+   Stripped like any other tag, a formula comes out as `μνρ` glued to the next
+   word, or as the same thing three times over: KaTeX writes the MathML, the
+   annotation and the glyphs.
+
+   - Pandoc: `<span class="math inline">TeX</span>`, `math display`;
+   - KaTeX already rendered: `<span class="katex">` with the source in its
+     `<annotation encoding="application/x-tex">`, and the rest of it dropped;
+   - MathJax 2: `<script type="math/tex">` (`; mode=display`).
+
+   `$…$` written in the text itself is left as it is: the engine reads it too.
+   The parentheses rather than `$`, because a `$` ends a formula only where no
+   digit follows it, and Pandoc puts `<span class="math inline">x</span>5` in a
+   sentence as readily as anything else. */
+function fence(tex, display) {
+	const t = decode(tex).replace(/\s+/g, ' ').trim();
+	if (!t) return ' ';
+	return display ? ' \\[' + t + '\\] ' : '\\(' + t + '\\)';
+}
+
+// Where the element opening at `at` closes, nested ones of its name and all.
+function closing(html, at, name) {
+	const tag = new RegExp('<(/?)' + name + '\\b[^>]*>', 'gi');
+	tag.lastIndex = at;
+	let depth = 0, m;
+	while ((m = tag.exec(html))) {
+		depth += m[1] ? -1 : 1;
+		if (depth === 0) return tag.lastIndex;
+	}
+	return html.length;
+}
+
+function formulas(html) {
+	let s = html
+		.replace(/<span class="math (inline|display)">([\s\S]*?)<\/span>/g,
+			(_, kind, tex) => fence(tex, kind === 'display'))
+		.replace(/<script type="math\/tex(; ?mode=display)?">([\s\S]*?)<\/script>/gi,
+			(_, display, tex) => fence(tex, !!display));
+	for (let at = s.search(/<span class="katex(-display)?"/); at !== -1; at = s.search(/<span class="katex(-display)?"/)) {
+		const end = closing(s, at, 'span');
+		const piece = s.slice(at, end);
+		const tex = piece.match(/<annotation encoding="application\/x-tex">([\s\S]*?)<\/annotation>/);
+		s = s.slice(0, at) + (tex ? fence(tex[1], /^<span class="katex-display"/.test(piece)) : ' ') + s.slice(end);
+	}
+	return s;
+}
+
 // Tags that end whatever piece was being collected. No closing tag is waited
 // for: see the unclosed <p> above — a piece ends at the next block-level tag,
 // whichever way that tag happens to face.
@@ -51,6 +101,7 @@ const HEADING = /^h([1-6])$/;
 // A page's body in pieces: the text of one paragraph or list item, the section
 // heading above it, and the nearest anchor a link can reach it by.
 function blocks(html) {
+	html = formulas(html);
 	const out = [];
 	let buf = '';
 	let anchor = null;        // in effect for the piece being collected
@@ -105,7 +156,9 @@ function blocks(html) {
 // not called for.
 function body(html, strip = []) {
 	let s = html
-		.replace(/<!--[\s\S]*?-->/g, '')
+		.replace(/<!--[\s\S]*?-->/g, '');
+	// Before the scripts go: MathJax keeps its formulas in them.
+	s = formulas(s)
 		.replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, '');
 	for (const re of strip) s = s.replace(re, ' ');
 
@@ -115,4 +168,4 @@ function body(html, strip = []) {
 	return close === -1 ? s : s.slice(0, close);
 }
 
-module.exports = { decode, clean, text, body, blocks };
+module.exports = { decode, clean, text, body, blocks, formulas };

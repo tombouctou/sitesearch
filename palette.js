@@ -60,6 +60,7 @@
 	var VOWEL = /[аеёиоуыэюя]/;
 	var GLIDED = /[яюеёи]/;
 	var MARK = /[̀-ͯ]/g;
+	var WHOLE = /[\u2190-\u2aff]/;   // arrows and operators, left as they stand
 	var VOCALIC = { 'ṛ': 'ri', 'ṝ': 'ri', 'Ṛ': 'ri', 'Ṝ': 'ri' };
 
 	function fold(s) {
@@ -75,6 +76,8 @@
 				piece = after ? CYRILLIC[c] : (c === 'я' ? 'ya' : 'yu');
 			}
 			else if (CYRILLIC[c] !== undefined) piece = CYRILLIC[c];
+			// An operator keeps its stroke: NFD would turn `≠` into `=`.
+			else if (WHOLE.test(c)) piece = c;
 			else piece = c.normalize('NFD').replace(MARK, '');
 			out += piece;
 			i += took - 1;

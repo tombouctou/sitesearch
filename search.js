@@ -69,6 +69,7 @@
 	var VOWEL = /[аеёиоуыэюя]/;   // after one of these «я» and «ю» keep the glide
 	var GLIDED = /[яюеёи]/;       // after «ь» one of these makes the glide sound
 	var MARK = /[̀-ͯ]/g;
+	var WHOLE = /[\u2190-\u2aff]/;   // arrows and operators, left as they stand
 	var VOCALIC = { 'ṛ': 'ri', 'ṝ': 'ri', 'Ṛ': 'ri', 'Ṝ': 'ri' };
 
 	/* The folded text, and for every letter of it the place in the original it
@@ -95,6 +96,8 @@
 				piece = after ? CYRILLIC[c] : (c === 'я' ? 'ya' : 'yu');
 			}
 			else if (CYRILLIC[c] !== undefined) piece = CYRILLIC[c];
+			// An operator keeps its stroke: NFD would turn `≠` into `=`.
+			else if (WHOLE.test(c)) piece = c;
 			else piece = c.normalize('NFD').replace(MARK, '');
 			out += piece;
 			if (map) for (var k = 0; k < piece.length; k++) map.push(i);
@@ -109,6 +112,378 @@
 		return foldMap(s, false);
 	}
 
+	/* --- formulas ----------------------------------------------------------
+
+	   A formula is written four ways and read as one. `\omega_g`, `ω_g`,
+	   `\omega_{g}`, `ω_{g}`: a page writes one of them, a reader types
+	   another, and a search that compares strings finds one search in four.
+	   So both sides are folded to one spelling before anything is compared,
+	   the text and the query alike. Folding only the query would fix the half
+	   of the cases where the reader happens to type the other spelling, which
+	   to the reader is a coin toss.
+
+	   The spelling folded to is the glyph: `\mu` becomes `μ`, `\to` `→`,
+	   Mathematica's `\[Mu]` `μ` as well, and `^{μ}` is `^μ`. A glyph is one
+	   character, and it is what the reader sees on the page. A bare name is
+	   **not** folded in the text: `omega` stays `omega`. A backslash says
+	   "this is a symbol" and nothing else is spelled that way, but `eta` is
+	   also the end of `beta`, and a text in which every "eta" had turned into
+	   η would stop answering the plain word. A bare name typed *as a query*
+	   is offered the glyph as well, because that costs the text nothing.
+
+	   This is the fold pm makes for its wiki (MathFold.cs), with the table
+	   widened for physics and one rule of its own: inside a formula spaces
+	   mean nothing. TeX ignores them — `\bar{\gamma}^{\mu}\bar{\gamma}^{\nu}`
+	   and `\bar{\gamma}^{\mu} \bar{\gamma}^{\nu}` are one formula — so a
+	   formula in the query is also looked for with its spaces, carets,
+	   underscores and braces taken out, against the formulas of the text with
+	   theirs taken out. Outside a formula a space still parts two words: `ω g`
+	   in prose is two words, and gluing them would answer `ωg` with prose
+	   that never said it. That is why the fold has to know where a formula
+	   is, which is what its fences say: `$…$` by Pandoc's rules, `$$…$$`,
+	   `\(…\)`, `\[…\]`.
+
+	   What the tables hold is also exactly what the symbol helper offers
+	   (symbols.js): a symbol the helper could write and the fold had never
+	   heard of would be one the reader can type and then not find. */
+	var SYMBOLS = [
+		['alpha', 'α'], ['beta', 'β'], ['gamma', 'γ'], ['delta', 'δ'],
+		['epsilon', 'ε'], ['varepsilon', 'ε'], ['zeta', 'ζ'], ['eta', 'η'],
+		['theta', 'θ'], ['vartheta', 'θ'], ['iota', 'ι'], ['kappa', 'κ'],
+		['lambda', 'λ'], ['mu', 'μ'], ['nu', 'ν'], ['xi', 'ξ'], ['omicron', 'ο'],
+		['pi', 'π'], ['varpi', 'π'], ['rho', 'ρ'], ['varrho', 'ρ'],
+		['sigma', 'σ'], ['varsigma', 'σ'], ['tau', 'τ'], ['upsilon', 'υ'],
+		['phi', 'φ'], ['varphi', 'φ'], ['chi', 'χ'], ['psi', 'ψ'], ['omega', 'ω'],
+		['Gamma', 'Γ'], ['Delta', 'Δ'], ['Theta', 'Θ'], ['Lambda', 'Λ'],
+		['Xi', 'Ξ'], ['Pi', 'Π'], ['Sigma', 'Σ'], ['Upsilon', 'Υ'],
+		['Phi', 'Φ'], ['Psi', 'Ψ'], ['Omega', 'Ω'],
+
+		// The big operators get glyphs of their own, not the Greek capitals:
+		// the fold lowers the case, and Σ would come out as σ.
+		['sum', '∑'], ['prod', '∏'], ['int', '∫'], ['oint', '∮'],
+		['partial', '∂'], ['nabla', '∇'], ['infty', '∞'], ['sqrt', '√'],
+		['hbar', 'ħ'], ['ell', 'ℓ'], ['dagger', '†'],
+
+		// `\cdot` is the dot operator and not the middle dot: html.js parts
+		// the cells of a table row with ` · `, and a search for a product
+		// would otherwise stop at every row of every table.
+		['times', '×'], ['cdot', '⋅'], ['div', '÷'], ['pm', '±'], ['mp', '∓'],
+		['leq', '≤'], ['le', '≤'], ['geq', '≥'], ['ge', '≥'],
+		['neq', '≠'], ['ne', '≠'], ['approx', '≈'], ['sim', '∼'], ['simeq', '≃'],
+		['equiv', '≡'], ['propto', '∝'], ['in', '∈'], ['notin', '∉'],
+		['subset', '⊂'], ['subseteq', '⊆'], ['cup', '∪'], ['cap', '∩'],
+		['forall', '∀'], ['exists', '∃'], ['land', '∧'], ['wedge', '∧'],
+		['lor', '∨'], ['vee', '∨'], ['neg', '¬'], ['otimes', '⊗'], ['oplus', '⊕'],
+		['perp', '⊥'], ['parallel', '∥'],
+		['to', '→'], ['rightarrow', '→'], ['longrightarrow', '→'],
+		['leftarrow', '←'], ['gets', '←'], ['leftrightarrow', '↔'],
+		['Rightarrow', '⇒'], ['Leftrightarrow', '⇔'], ['mapsto', '↦'],
+		['langle', '⟨'], ['rangle', '⟩'],
+		['ldots', '…'], ['dots', '…'], ['cdots', '…'],
+	];
+
+	var COMMAND = Object.create(null);
+	SYMBOLS.forEach(function (e) { COMMAND[e[0]] = e[1]; });
+
+	/* Mathematica writes the same letters as `\[Mu]`, `\[CapitalGamma]`,
+	   `\[CurlyPhi]` — and a page of FeynCalc code is full of `GA[\[Mu]]`. The
+	   names are made from the table above rather than written out again. */
+	var NAMED = Object.create(null);
+	var LETTERS = SYMBOLS.filter(function (e) { return /[\u0370-\u03ff]/.test(e[1]); });
+	LETTERS.forEach(function (e) {
+		var n = e[0], cap = n.charAt(0).toUpperCase() + n.slice(1);
+		if (n.charAt(0) !== n.charAt(0).toLowerCase()) NAMED['Capital' + n] = e[1];
+		else if (n.lastIndexOf('var', 0) === 0) NAMED['Curly' + n.charAt(3).toUpperCase() + n.slice(4)] = e[1];
+		else NAMED[cap] = e[1];
+	});
+	NAMED.FinalSigma = 'σ';
+	NAMED.Rule = '→'; NAMED.RuleDelayed = '→'; NAMED.Infinity = '∞';
+	NAMED.PartialD = '∂'; NAMED.Element = '∈'; NAMED.LessEqual = '≤';
+	NAMED.GreaterEqual = '≥'; NAMED.NotEqual = '≠'; NAMED.Times = '×';
+	NAMED.Dagger = '†'; NAMED.HBar = 'ħ'; NAMED.Sqrt = '√';
+
+	// The bare names a query may spell a Greek letter with: `alpha_s`.
+	var GREEK = Object.create(null);
+	LETTERS.forEach(function (e) {
+		if (e[0] === e[0].toLowerCase() && e[0].lastIndexOf('var', 0) !== 0) GREEK[e[0]] = e[1];
+	});
+
+	/* Commands that say how a formula looks and not what it says: the size
+	   of a bracket, a font, a space. `\left(` is a bracket and `\mathrm{d}`
+	   a d. They are dropped, and their braces with them further down. */
+	var SILENT = Object.create(null);
+	('left right big Big bigg Bigg bigl bigr Bigl Bigr biggl biggr Biggl Biggr ' +
+		'displaystyle textstyle scriptstyle limits nolimits ' +
+		'mathrm mathbf mathit mathsf mathtt boldsymbol bm operatorname ' +
+		'text textrm textit textbf textsf texttt textnormal mbox ' +
+		'quad qquad medspace thinspace thickspace negthinspace').split(' ')
+		.forEach(function (n) { SILENT[n] = 1; });
+
+	/* Accents. `\bar{\gamma}^{\mu}` is FeynCalc's four-dimensional γ^μ and
+	   `\gamma^{\mu}` its D-dimensional one, and a reader who types `γ^μ`
+	   is asking about both: so an accent stays in the text, where `\bar{γ}`
+	   typed finds exactly the barred one, and leaves the formula squeezed. */
+	var ACCENT = Object.create(null);
+	('bar overline underline hat widehat tilde widetilde vec dot ddot acute grave ' +
+		'check breve mathring overrightarrow overleftarrow overleftrightarrow slashed')
+		.split(' ').forEach(function (n) { ACCENT[n] = 1; });
+
+	var SUPER = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5',
+		'⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9', '⁺': '+', '⁻': '-', '⁼': '=',
+		'⁽': '(', '⁾': ')', 'ⁿ': 'n', 'ⁱ': 'i' };
+	var SUB = { '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5',
+		'₆': '6', '₇': '7', '₈': '8', '₉': '9', '₊': '+', '₋': '-', '₌': '=',
+		'₍': '(', '₎': ')', 'ₐ': 'a', 'ₑ': 'e', 'ₒ': 'o', 'ₓ': 'x', 'ₕ': 'h',
+		'ₖ': 'k', 'ₗ': 'l', 'ₘ': 'm', 'ₙ': 'n', 'ₚ': 'p', 'ₛ': 's', 'ₜ': 't' };
+
+	// One letter written two ways by Unicode itself.
+	var ALIAS = { 'ϵ': 'ε', 'ϑ': 'θ', 'ϕ': 'φ', 'ϖ': 'π', 'ϱ': 'ρ', 'ς': 'σ',
+		'µ': 'μ', 'ℏ': 'ħ', '−': '-', '⟶': '→', '⟵': '←', '⋯': '…', '∙': '⋅' };
+
+	/* The characters of formulas: Greek, letterlike symbols, arrows, the
+	   mathematical operators. They pass through the fold untouched — NFD
+	   would take `≠` apart into `=` and a stroke and then throw the stroke
+	   away — and each is a word of its own, so that `μ` is found inside `μν`
+	   and a two-tier map can name the chunks holding it. */
+	var GLYPH = /[Ͱ-Ͽ℀-⅏←-⏿⟀-⟿⤀-⫿±×÷¬†‡…√∞ħ]/;
+	var GLYPHS = new RegExp(GLYPH.source, 'g');
+
+	// Anything at all for the fold below to do: everything else is left alone,
+	// which is nearly every paragraph of nearly every site.
+	var TEXISH = /[\\$^_{}~¹²³µ⁰-₟−ςϑϕϖϱϵℏ⟵⟶⋯∙]|->/;
+
+	/* Where a formula opens at `i`: how long its opening fence is, where its
+	   closing one stands and how long that is — or null.
+
+	   `$` by Pandoc's rules, which are the ones that let money survive: the
+	   opening `$` is not followed by a space, the closing one is not preceded
+	   by one nor followed by a digit, and `\$` is always a dollar. "$5 and
+	   $10" is two amounts. */
+	function fenceAt(s, i) {
+		var c = s.charAt(i), d = s.charAt(i + 1), end;
+		if (c === '\\' && (d === '(' || d === '[')) {
+			if (i > 0 && s.charAt(i - 1) === '\\') return null;
+			end = s.indexOf(d === '(' ? '\\)' : '\\]', i + 2);
+			return end > i + 2 ? { open: 2, end: end, shut: 2 } : null;
+		}
+		if (c !== '$' || (i > 0 && s.charAt(i - 1) === '\\')) return null;
+		if (d === '$') {
+			end = s.indexOf('$$', i + 2);
+			return end > i + 2 ? { open: 2, end: end, shut: 2 } : null;
+		}
+		if (!d || /\s/.test(d)) return null;
+		for (var j = i + 2; j < s.length; j++) {
+			if (s.charAt(j) !== '$' || s.charAt(j - 1) === '\\') continue;
+			if (/\s/.test(s.charAt(j - 1))) continue;
+			if (/[0-9]/.test(s.charAt(j + 1))) continue;
+			return { open: 1, end: j, shut: 1 };
+		}
+		return null;
+	}
+
+	// One symbol at `i`: a command of the table, a Mathematica name, or a
+	// single character — what it folds to and where it ends. TeX eats the one
+	// space that ends a command's name (`\omega g` is ωg), so this eats it too.
+	function symbolAt(s, i) {
+		var c = s.charAt(i);
+		if (c !== '\\') return c && c !== '{' && c !== '}' ? { piece: c, end: i + 1 } : null;
+		if (s.charAt(i + 1) === '[') {
+			var m = /^\\\[([A-Za-z]+)\]/.exec(s.slice(i, i + 40));
+			return m && NAMED[m[1]] ? { piece: NAMED[m[1]], end: i + m[0].length } : null;
+		}
+		var j = i + 1;
+		while (j < s.length && /[A-Za-z]/.test(s.charAt(j))) j++;
+		var g = COMMAND[s.slice(i + 1, j)];
+		if (!g) return null;
+		return { piece: g, end: s.charAt(j) === ' ' ? j + 1 : j };
+	}
+
+	/* TeX, Mathematica's names and Unicode's variants folded to glyphs, with
+	   for every character of the result where it came from, which fenced
+	   formula it stands in (0 outside any), and whether it is an accent's
+	   name. Null where there is nothing to fold. */
+	function texFold(s) {
+		if (!TEXISH.test(s)) return null;
+		var out = [], map = [], inside = [], accents = [], n = s.length;
+		var close = -1, shut = 0, formula = 0, number = 0;
+
+		function emit(piece, from, accent) {
+			for (var k = 0; k < piece.length; k++) {
+				out.push(piece.charAt(k));
+				map.push(from);
+				inside.push(formula);
+				accents.push(accent ? 1 : 0);
+			}
+		}
+
+		for (var i = 0; i < n;) {
+			var c = s.charAt(i), d = s.charAt(i + 1);
+			if (close < 0) {
+				var f = fenceAt(s, i);
+				// A fence is a space: `x$y$` is not the word "xy".
+				if (f) { emit(' ', i); formula = ++number; close = f.end; shut = f.shut; i += f.open; continue; }
+			} else if (i >= close) {
+				formula = 0; emit(' ', i); i = close + shut; close = -1;
+				continue;
+			}
+			// A tilde is TeX's unbreakable space.
+			if (formula && c === '~') { emit(' ', i); i++; continue; }
+			if (c === '\\') {
+				var sym = symbolAt(s, i);
+				if (sym) { emit(sym.piece, i); i = sym.end; continue; }
+				if (/[A-Za-z]/.test(d)) {
+					var j = i + 1;
+					while (j < n && /[A-Za-z]/.test(s.charAt(j))) j++;
+					var name = s.slice(i + 1, j);
+					if (SILENT[name]) {
+						// `\left.` is no bracket at all.
+						if ((name === 'left' || name === 'right') && s.charAt(j) === '.') j++;
+						i = j;
+						continue;
+					}
+					emit(s.slice(i, j), i, ACCENT[name]);
+					i = j;
+					continue;
+				}
+				// `\,` and its kind are spaces; `\{` and its kind the character.
+				if (/[,;:! ]/.test(d)) { i += 2; continue; }
+				if (/[{}$%&_#]/.test(d)) { emit(d, i + 1); i += 2; continue; }
+			}
+			// `_{g}` is `_g`, and `^{\mu}` is `^μ`. Only a single symbol inside
+			// the braces: `_{gk}` and `_gk` are different formulas.
+			if ((c === '^' || c === '_') && d === '{') {
+				var one = symbolAt(s, i + 2);
+				if (one && s.charAt(one.end) === '}') { emit(c, i); emit(one.piece, i + 2); i = one.end + 1; continue; }
+			}
+			if (SUPER[c]) { emit('^' + SUPER[c], i); i++; continue; }
+			if (SUB[c]) { emit('_' + SUB[c], i); i++; continue; }
+			if (ALIAS[c]) { emit(ALIAS[c], i); i++; continue; }
+			if (c === '-' && d === '>') { emit('→', i); i += 2; continue; }
+			emit(c, i);
+			i++;
+		}
+		map.push(n);
+		return { text: out.join(''), map: map, inside: inside, accents: accents };
+	}
+
+	/* Which words of a run of words are a formula, by the rule a query is read
+	   by and a text alike — the one rule, so that whatever a query takes for a
+	   formula is looked for where the text has one.
+
+	   A word looks like a piece of a formula when it holds a glyph, a TeX
+	   command, a caret, an underscore, a brace, a relation, or a minus that is
+	   not a hyphen: `e-` and `e+e-` do, `Klein-Gordon` and «по-японски» do not.
+	   A lone letter or digit beside such a word is a symbol of it (`e γ → e γ`).
+	   And neighbours run together into one formula, spaces and all — `e+ e- →
+	   μ+ μ-` is one, not five words each to be found anywhere.
+
+	   The words come folded, and in as `{ text }`; `fixed` marks one whose say
+	   is already had (a formula the reader fenced, which joins nothing). What
+	   comes out is the runs, as pairs of indexes, the second past the end. */
+	var SIGNED = new RegExp(/[\\^_{}=+<>|]/.source + '|' + GLYPH.source + '|' + /(^|[^a-zа-я0-9])-|-($|[^a-zа-я0-9])/.source);
+	var LONE = /^[a-zа-я0-9]$/;
+
+	function runsOf(toks) {
+		toks.forEach(function (k) { if (k.math === undefined) k.math = SIGNED.test(k.text); });
+		for (var pass = 0; pass < 2; pass++) {
+			for (var i = 0; i < toks.length; i++) {
+				var it = toks[pass ? toks.length - 1 - i : i];
+				var next = toks[pass ? toks.length - 2 - i : i + 1];
+				if (!it.math && next && next.math && !next.fixed && LONE.test(it.text)) it.math = true;
+			}
+		}
+		var out = [];
+		for (var k = 0; k < toks.length; k++) {
+			if (!toks[k].math) continue;
+			var from = k;
+			while (!toks[k].fixed && toks[k + 1] && toks[k + 1].math && !toks[k + 1].fixed) k++;
+			out.push([from, k + 1]);
+		}
+		return out;
+	}
+
+	/* A text as it is searched: folded, and its formulas once more, squeezed
+	   — no spaces, carets, underscores, braces or accents — parted from each
+	   other by a character no query holds, with where each of their
+	   characters stands in the folded text. A formula is what the text fenced,
+	   and also, outside the fences, a run of words that looks like one
+	   (`runsOf`): `GA[\[Mu]]` in code, `e+e- → μ+μ-` in a sentence. `want`
+	   adds the map back to the original, which only a snippet needs. */
+	var SQUEEZE = /[\s^_{}]/;
+	var TOKEN = /\S+/g;
+
+	function record(s, want) {
+		var t = texFold(s), f, text;
+		if (t) { f = foldMap(t.text, true); text = f.text; }
+		else if (want) { f = foldMap(s, true); text = f.text; }
+		else text = norm(s);
+		var r = { text: text, sq: null, sqAt: null };
+		if (want) r.map = t ? f.map.map(function (k) { return t.map[k]; }) : f.map;
+
+		var fenced = t && t.inside.some(function (x) { return x; });
+		if (!fenced && !SIGNED.test(text)) return r;
+
+		// Which formula each character of the folded text is in: a fenced one
+		// by its number, a run of words by one past the last of those.
+		var id = new Array(text.length), skip = new Array(text.length), j;
+		var prose = text;
+		for (j = 0; j < text.length; j++) {
+			var src = t ? f.map[j] : -1;
+			id[j] = src >= 0 ? t.inside[src] : 0;
+			skip[j] = src >= 0 && t.accents[src];
+		}
+		if (fenced) prose = text.replace(/[\s\S]/g, function (c, k) { return id[k] ? ' ' : c; });
+		var toks = [], m, base = 1 + (t ? t.inside.reduce(function (a, b) { return Math.max(a, b); }, 0) : 0);
+		TOKEN.lastIndex = 0;
+		while ((m = TOKEN.exec(prose))) toks.push({ text: m[0], at: m.index });
+		runsOf(toks).forEach(function (run, n) {
+			var a = toks[run[0]].at, last = toks[run[1] - 1];
+			for (var k = a; k < last.at + last.text.length; k++) id[k] = base + n;
+		});
+
+		var sq = '', at = [], was = 0;
+		for (j = 0; j < text.length; j++) {
+			var c = text.charAt(j);
+			if (!id[j] || skip[j] || SQUEEZE.test(c)) continue;
+			if (id[j] !== was && sq) { sq += '\u0001'; at.push(j); }
+			was = id[j];
+			sq += c;
+			at.push(j);
+		}
+		if (sq) { r.sq = sq; r.sqAt = at; }
+		return r;
+	}
+
+	/* The words a two-tier map lists for a piece of text (node/two-tier.js
+	   takes them from here, so that the map and the engine cannot disagree).
+	   A word is a run of letters and digits, as before, and a glyph is a word
+	   of its own. A formula is listed once more as it is matched, squeezed:
+	   each pair of neighbours in it, with a `$` in front — `$e+`, `$→μ`. No
+	   query word begins with `$`.
+
+	   Pairs and not letters alone, because the letters alone filter nothing
+	   on a site of formulas: `e`, `→` and `μ` stand together in a third of
+	   FeynCalc's manual, and `e+e- → μ+μ-` read forty chunks of it and gave
+	   up. The pairs cost the map of that manual about 55 KB compressed and
+	   cost a site without formulas nothing. A formula of one character is
+	   not listed: a glyph is a word already, and anything else of one
+	   character (`+`) is in too many formulas to be worth a list. */
+	var RUN = /[a-zа-я0-9]+/g;
+
+	function vocabulary(s) {
+		var r = record(s, false), seen = Object.create(null), m;
+		RUN.lastIndex = 0;
+		while ((m = RUN.exec(r.text))) seen[m[0]] = 1;
+		GLYPHS.lastIndex = 0;
+		while ((m = GLYPHS.exec(r.text))) seen[m[0]] = 1;
+		for (var i = 0; r.sq && i < r.sq.length; i++) {
+			var c = r.sq.charAt(i), d = r.sq.charAt(i + 1);
+			if (c === '\u0001') continue;
+			if (d && d !== '\u0001') seen['$' + c + d] = 1;
+		}
+		return Object.keys(seen);
+	}
+
 	/* A match begins where a word begins. Otherwise «страх» (fear) is
 	   shortened to a stem that also sits inside «от·стра·нение»
 	   (detachment) — on the text of a book that was a hundred paragraphs of
@@ -117,8 +492,11 @@
 
 	function occurrence(haystack, t, from) {
 		var at = haystack.indexOf(t, from);
+		// A term that begins with something other than a letter — `μ`, `→` —
+		// begins a word of its own wherever it stands: `μ` is found in `γ^μν`.
+		var free = !LETTER.test(t.charAt(0));
 		while (at !== -1) {
-			if (at === 0 || !LETTER.test(haystack.charAt(at - 1))) return at;
+			if (free || at === 0 || !LETTER.test(haystack.charAt(at - 1))) return at;
 			at = haystack.indexOf(t, at + 1);
 		}
 		return -1;
@@ -181,42 +559,111 @@
 		return q.normalize('NFC').split(/\s+/).filter(function (t) { return t.length > 0; });
 	}
 
+	/* A query cut into what it asks for, each an array of variants any of
+	   which will do. A word is a string, with its ladder of endings as
+	   before. A formula is an object, `{ s }`: the formula squeezed, the way
+	   the text's formulas are (`record`), and looked for there and nowhere
+	   else. What is a formula is what the reader fenced
+	   (`$\bar{\gamma}^\mu$`), and otherwise what `runsOf` takes for
+	   one — the rule the text is read by. */
+	function parse(q) {
+		q = q.normalize('NFC');
+		var toks = [], plain = '';
+		function words_(text) {
+			text.split(/\s+/).forEach(function (w) {
+				if (w) toks.push({ raw: w, text: record(w, false).text });
+			});
+		}
+		for (var i = 0; i < q.length; i++) {
+			var f = fenceAt(q, i);
+			if (!f) { plain += q.charAt(i); continue; }
+			words_(plain); plain = '';
+			var inner = q.slice(i + f.open, f.end).trim();
+			if (inner) toks.push({ raw: inner, text: inner, math: true, fixed: true });
+			i = f.end + f.shut - 1;
+		}
+		words_(plain);
+
+		var runs = runsOf(toks), out = [], k = 0;
+		runs.push([toks.length, toks.length]);
+		runs.forEach(function (run) {
+			for (; k < run[0]; k++) {
+				var w = toks[k].text, typed = toks[k].raw;
+				if (!w) continue;
+				var v = ladder(w, CYR_WORD.test(typed));
+				if (GREEK[typed.toLowerCase()]) v = v.concat([GREEK[typed.toLowerCase()]]);
+				out.push({ word: w, variants: v });
+			}
+			if (run[0] === run[1]) return;
+			var text = toks.slice(run[0], run[1]).map(function (x) { return x.raw; }).join(' ');
+			var v_ = formulaVariants(text);
+			if (v_.length) out.push({ word: null, variants: v_ });
+			k = run[1];
+		});
+		return out;
+	}
+
+	function formulaVariants(text) {
+		// Fenced, so that it is squeezed by the very code that squeezes the text.
+		function squeezed(t) { return record('\\(' + t + '\\)', false).sq; }
+		var sq = squeezed(text);
+		if (!sq) return [];
+		var v = [{ s: sq }];
+		// `alpha_s` is the reader's way of writing `α_s`.
+		var greek = squeezed(text.replace(/[A-Za-z]+/g, function (w) { return GREEK[w.toLowerCase()] || w; }));
+		if (greek && greek !== sq) v.push({ s: greek });
+		return v;
+	}
+
 	function words(q) {
-		return raw(q).map(norm).filter(function (t) { return t.length > 0; });
+		return parse(q).filter(function (t) { return t.word; }).map(function (t) { return t.word; });
 	}
 
 	function terms(q) {
-		return raw(q).map(function (w) {
-			return ladder(norm(w), CYR_WORD.test(w));
-		}).filter(function (v) { return v[0].length > 0; });
+		return parse(q).map(function (t) { return t.variants; }).filter(function (v) { return v.length; });
 	}
 
-	// The longest candidate actually present, or null if none is.
-	function present(haystack, variants) {
-		for (var i = 0; i < variants.length; i++) {
-			if (occurrence(haystack, variants[i], 0) !== -1) return variants[i];
+	// Where a variant stands in a searched text, from `from` on: `[at, end)`
+	// in the folded text, or null.
+	function locate(r, v, from) {
+		if (typeof v === 'string') {
+			var at = occurrence(r.text, v, from);
+			return at === -1 ? null : [at, at + v.length, true];
+		}
+		if (!r.sq) return null;
+		for (var k = r.sq.indexOf(v.s); k !== -1; k = r.sq.indexOf(v.s, k + 1)) {
+			if (r.sqAt[k] >= from) return [r.sqAt[k], r.sqAt[k + v.s.length - 1] + 1, false];
 		}
 		return null;
 	}
 
-	function matches(haystack, ts) {
-		return ts.every(function (variants) { return present(haystack, variants) !== null; });
+	// The first variant actually present, or null if none is.
+	function present(r, variants) {
+		for (var i = 0; i < variants.length; i++) {
+			if (locate(r, variants[i], 0)) return variants[i];
+		}
+		return null;
+	}
+
+	function matches(r, ts) {
+		return ts.every(function (variants) { return present(r, variants) !== null; });
 	}
 
 	// Positions of every term occurrence, so all of them get highlighted. The
 	// match is only the beginning of the word, but the whole word is what the
-	// eye is looking for: «тело» highlights «тела», not «тел»а.
-	function hits(haystack, ts) {
+	// eye is looking for: «тело» highlights «тела», not «тел»а. A formula is
+	// highlighted as far as it goes and no further.
+	function hits(r, ts) {
 		var out = [];
 		ts.forEach(function (variants) {
-			var t = present(haystack, variants);
-			if (!t) return;
-			var from = 0, at;
-			while ((at = occurrence(haystack, t, from)) !== -1) {
-				var end = at + t.length;
-				while (end < haystack.length && LETTER.test(haystack.charAt(end))) end++;
-				out.push([at, end]);
-				from = end;
+			var v = present(r, variants);
+			if (!v) return;
+			var from = 0, got;
+			while ((got = locate(r, v, from))) {
+				var end = got[1];
+				if (got[2]) while (end < r.text.length && LETTER.test(r.text.charAt(end))) end++;
+				out.push([got[0], end]);
+				from = Math.max(end, got[0] + 1);
 			}
 		});
 		return out.sort(function (a, b) { return a[0] - b[0]; });
@@ -257,8 +704,8 @@
 	   very text they came from, whole: `hits` runs a match on to the end of
 	   its word, and the map carries the edges home. */
 	function form(text, t) {
-		var f = foldMap(text, true);
-		var spans = hits(f.text, [[t]]);
+		var f = record(text, true);
+		var spans = hits(f, [[t]]);
 		if (!spans.length) return null;
 		// The paragraph may hold the word alone and hold it inside a longer
 		// one — `śaktipāta` and `śaktipātataḥ` — and the shorter is the one
@@ -282,6 +729,53 @@
 		while ((m = WORDS.exec(text))) into[m[0]] = (into[m[0]] || 0) + 1;
 	}
 
+	/* The formulas of a text as it stands: where each begins and ends, fences
+	   and all, and the TeX inside. */
+	function formulasOf(text) {
+		var out = [];
+		for (var i = 0; i < text.length; i++) {
+			var f = fenceAt(text, i);
+			if (!f) continue;
+			out.push({ from: i, to: f.end + f.shut, tex: text.slice(i + f.open, f.end) });
+			i = f.end + f.shut - 1;
+		}
+		return out;
+	}
+
+	/* How a formula is drawn in a result, if the page can draw one at all. A
+	   site of formulas has KaTeX or MathJax on its pages already, and the TeX
+	   of a result — `\frac{2 \;\text{e}^4 N e_Q^2 \left(t^2+u^2\right)}{s^2}` —
+	   is not something to read. The host may hand its own function in; left
+	   to itself the engine uses KaTeX where the page has it, and MathJax
+	   otherwise, which typesets the list once it is drawn. Inline wherever
+	   KaTeX allows it: a result is a line of text, and a displayed formula in
+	   it would break the line in two. */
+	function drawer(opt) {
+		if (opt === false) return null;
+		if (typeof opt === 'function') return opt;
+		return function (tex) {
+			var el = document.createElement('span');
+			el.className = 'math';
+			if (global.katex && global.katex.render) {
+				// `align` and its kind exist in display mode only. What KaTeX
+				// cannot draw stays TeX: a red error is worse than the source.
+				try {
+					global.katex.render(tex, el, { throwOnError: true, displayMode: /\\begin\{/.test(tex) });
+					return el;
+				} catch (e) { return null; }
+			}
+			if (global.MathJax && (global.MathJax.typesetPromise || global.MathJax.Hub)) {
+				el.textContent = '\\(' + tex + '\\)';
+				return el;
+			}
+			return null;
+		};
+	}
+
+	// Past this a formula is shown as its TeX, cut like any other text: a
+	// result that unfolds into a page of output is no longer a line.
+	var DRAWN = 600;
+
 	/* Build the snippet as text nodes + <mark>, never as HTML.
 
 	   The window and the matches inside it are worked out on the folded text
@@ -290,54 +784,81 @@
 	   but «натья» is five and folds to six. What is shown has to be the text
 	   as it stands — a reader searching in Cyrillic for a word written in IAST
 	   must see the IAST — so every edge is folded-side arithmetic first and
-	   `map` afterwards. */
-	function snippet(text, ts) {
-		var f = foldMap(text, true), hay = f.text;
-		var spans = hits(hay, ts);
+	   `map` afterwards.
+
+	   A formula is shown whole or not at all — half of a fraction is not a
+	   formula — so where the window cuts one it is widened to hold it, and a
+	   formula a match falls in is marked as a whole. */
+	function snippet(text, ts, math) {
+		var f = record(text, true), hay = f.text;
+		var spans = hits(f, ts);
 		var frag = document.createDocumentFragment();
+		var head, tail;
 		if (!spans.length) {
 			// The term matched the section heading rather than the paragraph
 			// itself, so just show the opening, cut on a word boundary.
-			if (text.length <= 220) {
-				frag.appendChild(document.createTextNode(text));
-				return frag;
-			}
+			head = 0;
 			var cut = text.lastIndexOf(' ', 220);
-			frag.appendChild(document.createTextNode(text.slice(0, cut > 0 ? cut : 220) + '…'));
-			return frag;
+			tail = text.length <= 220 ? text.length : (cut > 0 ? cut : 220);
+		} else {
+			var WINDOW = 240;
+			var start = Math.max(0, spans[0][0] - 60);
+			// Don't cut a word in half at the left edge.
+			if (start > 0) {
+				var space = hay.indexOf(' ', start);
+				if (space !== -1 && space - start < 20) start = space + 1;
+			}
+			var end = Math.min(hay.length, start + WINDOW);
+			// And at the right edge too: a word caught on the window's boundary
+			// would otherwise be highlighted as a stub — «джх» for «джханы».
+			while (end < hay.length && LETTER.test(hay.charAt(end))) end++;
+			head = f.map[start]; tail = f.map[end];
 		}
+		var marks = spans.map(function (s) { return [f.map[s[0]], f.map[s[1]]]; });
 
-		var WINDOW = 240;
-		var start = Math.max(0, spans[0][0] - 60);
-		// Don't cut a word in half at the left edge.
-		if (start > 0) {
-			var space = hay.indexOf(' ', start);
-			if (space !== -1 && space - start < 20) start = space + 1;
-		}
-		var end = Math.min(hay.length, start + WINDOW);
-		// And at the right edge too: a word caught on the window's boundary
-		// would otherwise be highlighted as a stub — «джх» for «джханы».
-		while (end < hay.length && LETTER.test(hay.charAt(end))) end++;
-
-		var head = f.map[start], tail = f.map[end];
-		var cursor = head;
-		if (start > 0) frag.appendChild(document.createTextNode('…'));
-
-		spans.forEach(function (s) {
-			var from = f.map[s[0]], to = f.map[s[1]];
-			if (to <= cursor || from >= tail) return;
-			if (from > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, from)));
-			// Two words of the query can cover one word of the text; the second
-			// then begins before the first has ended, and what is already
-			// written must not be written again.
-			var m = document.createElement('mark');
-			m.textContent = text.slice(Math.max(from, cursor), Math.min(to, tail));
-			frag.appendChild(m);
-			cursor = Math.min(to, tail);
+		var drawn = !math ? [] : formulasOf(text).filter(function (m) {
+			if (m.to <= head || m.from >= tail || m.to - m.from > DRAWN) return false;
+			head = Math.min(head, m.from);
+			tail = Math.max(tail, m.to);
+			return true;
 		});
 
-		if (cursor < tail) frag.appendChild(document.createTextNode(text.slice(cursor, tail)));
-		if (end < hay.length) frag.appendChild(document.createTextNode('…'));
+		if (head > 0) frag.appendChild(document.createTextNode('…'));
+		var cursor = head;
+
+		function plain(upto) {
+			marks.forEach(function (s) {
+				var from = s[0], to = Math.min(s[1], upto);
+				if (to <= cursor || from >= upto) return;
+				if (from > cursor) frag.appendChild(document.createTextNode(text.slice(cursor, from)));
+				// Two words of the query can cover one word of the text; the
+				// second then begins before the first has ended, and what is
+				// already written must not be written again.
+				var m = document.createElement('mark');
+				m.textContent = text.slice(Math.max(from, cursor), to);
+				frag.appendChild(m);
+				cursor = to;
+			});
+			if (cursor < upto) frag.appendChild(document.createTextNode(text.slice(cursor, upto)));
+			cursor = upto;
+		}
+
+		drawn.forEach(function (m) {
+			plain(m.from);
+			var node = math(m.tex);
+			if (!node) { plain(m.to); return; }
+			var hit = marks.some(function (s) { return s[0] < m.to && s[1] > m.from; });
+			if (hit) {
+				var mark = document.createElement('mark');
+				mark.appendChild(node);
+				node = mark;
+			}
+			frag.appendChild(node);
+			cursor = m.to;
+		});
+		plain(tail);
+
+		if (tail < text.length) frag.appendChild(document.createTextNode('…'));
 		return frag;
 	}
 
@@ -572,6 +1093,7 @@
 		var results = typeof opts.results === 'string' ? document.getElementById(opts.results) : opts.results;
 		var showSection = opts.showSection !== false;
 		var repeats = opts.repeats || 0;
+		var math = drawer(opts.math);
 
 		/* A search that is the page's own owns the address bar: the query
 		   belongs in it, so that a result can be linked to and a reload comes
@@ -613,6 +1135,11 @@
 		});
 		more.appendChild(button);
 		if (opts.more !== false && results.parentNode) results.parentNode.insertBefore(more, results.nextSibling);
+
+		/* The symbol helper (symbols.js), where the page has loaded it: a site
+		   of formulas puts it beside the box, and a site with none does not
+		   load the file. `symbols: false` keeps it off a field all the same. */
+		if (opts.symbols !== false && global.SiteSymbols) global.SiteSymbols.attach(input, { lang: lang });
 
 		var sources = [];
 
@@ -703,6 +1230,63 @@
 				return n;
 			};
 
+			function union(lists) {
+				var seen = Object.create(null), out = [];
+				lists.forEach(function (l) {
+					for (var k = 0; k < l.length; k++) if (!seen[l[k]]) { seen[l[k]] = 1; out.push(l[k]); }
+				});
+				return out.sort(function (a, b) { return a - b; });
+			}
+
+			function both(a, b) {
+				var keep = Object.create(null);
+				for (var k = 0; k < b.length; k++) keep[b[k]] = 1;
+				return a.filter(function (id) { return keep[id]; });
+			}
+
+			// The chunks holding every one of these beginnings of words; ALL
+			// where there is nothing to ask the map about.
+			var ALL = null;
+			function every(keys) {
+				var out = ALL;
+				for (var i = 0; i < keys.length; i++) {
+					var set = src.postingsFor(keys[i]) || [];
+					out = out === ALL ? set : both(out, set);
+					if (!out.length) return out;
+				}
+				return out;
+			}
+
+			function pieces(t) {
+				var out = [], m;
+				RUN.lastIndex = 0;
+				while ((m = RUN.exec(t))) out.push(m[0]);
+				GLYPHS.lastIndex = 0;
+				while ((m = GLYPHS.exec(t))) out.push(m[0]);
+				return out;
+			}
+
+			/* A word is looked up as it stands while it is one word to the map
+			   too. One that holds a hyphen or a bracket — `Passarino-Veltman`,
+			   `DiracTrace[` — is two words or one and a bracket to the map,
+			   which lists runs of letters only, and asking for it whole named
+			   no chunk at all: a flat index found it and a two-tier one said
+			   "nothing". Its pieces are asked for instead, all of them.
+
+			   A formula is asked for the way it is matched (`locate`): by every
+			   pair of neighbours in it squeezed, `$e+`, `$+e`, as the map lists
+			   the formulas of the text — or, one glyph long, as the word it is. */
+			function chunksOf(v) {
+				if (typeof v === 'string') {
+					var whole = /^[a-zа-я0-9]+$/.test(v) || GLYPH.test(v) && v.length === 1;
+					return whole ? src.postingsFor(v) || [] : every(pieces(v));
+				}
+				var keys = [];
+				if (v.s.length === 1 && GLYPH.test(v.s)) keys.push(v.s);
+				for (var i = 0; i + 1 < v.s.length; i++) keys.push('$' + v.s.substr(i, 2));
+				return every(keys);
+			}
+
 			/* The ladder of endings is a chain of prefixes — «тело», «тел» —
 			   and a block matches when any rung of it occurs. The shortest rung
 			   therefore names every chunk the longer ones could, and asking for
@@ -714,34 +1298,30 @@
 			   than the shortest of each chain would give the same set: a
 			   shorter rung names everything the longer one does. */
 			function anyOf(variants) {
-				var out = null;
+				var sets = [];
 				for (var i = 0; i < variants.length; i++) {
-					var set = src.postingsFor(variants[i]);
-					if (!set) continue;
-					if (out === null) { out = set.slice(); continue; }
-					for (var k = 0; k < set.length; k++) out.push(set[k]);
+					var set = chunksOf(variants[i]);
+					if (set === ALL) return ALL;
+					sets.push(set);
 				}
-				if (out === null) return null;
-				var seen = Object.create(null);
-				return out.filter(function (id) {
-					if (seen[id]) return false;
-					seen[id] = 1;
-					return true;
-				}).sort(function (a, b) { return a - b; });
+				return union(sets);
 			}
 
+			/* A term the map can say nothing about — a formula of nothing but
+			   `+` and `-` — narrows nothing, and the others decide; a query of
+			   nothing else reads from the top, as far as reading goes. */
 			src.candidates = function (ts) {
-				var out = null;
+				var out = ALL;
 				for (var i = 0; i < ts.length; i++) {
 					var set = anyOf(ts[i]);
-					if (!set) return [];
-					if (out === null) { out = set; continue; }
-					var keep = Object.create(null);
-					for (var k = 0; k < set.length; k++) keep[set[k]] = 1;
-					out = out.filter(function (id) { return keep[id]; });
+					if (set === ALL) continue;
+					out = out === ALL ? set : both(out, set);
 					if (!out.length) return out;
 				}
-				return out || [];
+				if (out !== ALL) return out;
+				var every_ = [];
+				for (var id = 0; id < owner.length; id++) every_.push(id);
+				return every_;
 			};
 
 			src.owner = function (id) { return owner[id]; };
@@ -848,7 +1428,7 @@
 			el.where.textContent = doc.section || say_.page;
 			var a = document.createElement('a');
 			a.href = doc.url;
-			a.appendChild(snippet(doc.title, ts));
+			a.appendChild(snippet(doc.title, ts, math));
 			el.snippet.appendChild(a);
 		}
 
@@ -862,8 +1442,13 @@
 			var named = showSection && doc.section && doc.section !== doc.title;
 			a.textContent = (named ? doc.section + ' → ' : '') + doc.title;
 			el.where.appendChild(a);
-			if (block.section) el.where.appendChild(document.createTextNode(' → ' + block.section));
-			el.snippet.appendChild(snippet(block.text, ts));
+			// A heading may hold a formula — "\(SU(N)\) algebra" — and is
+			// drawn the way the text under it is.
+			if (block.section) {
+				el.where.appendChild(document.createTextNode(' → '));
+				el.where.appendChild(snippet(block.section, [], math));
+			}
+			el.snippet.appendChild(snippet(block.text, ts, math));
 		}
 
 		/* The folded text is computed once per block and kept: it does not
@@ -872,12 +1457,12 @@
 		   right here: it has to be searched too, while what is shown is still
 		   the paragraph. */
 		function folded(b) {
-			if (b.fold === undefined) b.fold = norm((b.section || '') + ' ' + b.text);
+			if (b.fold === undefined) b.fold = record((b.section || '') + ' ' + b.text, false);
 			return b.fold;
 		}
 
 		function foldedTitle(doc) {
-			if (doc.fold === undefined) doc.fold = norm(doc.title + ' ' + (doc.also || ''));
+			if (doc.fold === undefined) doc.fold = record(doc.title + ' ' + (doc.also || ''), false);
 			return doc.fold;
 		}
 
@@ -941,9 +1526,9 @@
 			return sources.some(function (src) {
 				if (src.postingsFor && src.postingsFor(t)) return true;
 				return (src.docs || []).some(function (doc) {
-					if (occurrence(foldedTitle(doc), t, 0) !== -1) return true;
+					if (occurrence(foldedTitle(doc).text, t, 0) !== -1) return true;
 					return !src.postingsFor && doc.blocks.some(function (b) {
-						return occurrence(folded(b), t, 0) !== -1;
+						return occurrence(folded(b).text, t, 0) !== -1;
 					});
 				});
 			});
@@ -1014,7 +1599,10 @@
 
 		function widen(q) {
 			var cut = null, n = 0;
-			var ts = words(q).map(function (t) {
+			// A formula is not cut: it has no endings, only symbols.
+			var ts = parse(q).map(function (term) {
+				if (!term.word) return term.variants;
+				var t = term.word;
 				var min = Math.max(4, Math.ceil(t.length * KEEP));
 				for (var len = t.length - 1; len >= min; len--) {
 					var s = t.slice(0, len);
@@ -1053,8 +1641,8 @@
 					return;
 				}
 				src.docs.forEach(function (doc) {
-					tally(weight, foldedTitle(doc));
-					doc.blocks.forEach(function (b) { if (b) tally(weight, folded(b)); });
+					tally(weight, foldedTitle(doc).text);
+					doc.blocks.forEach(function (b) { if (b) tally(weight, folded(b).text); });
 				});
 			});
 			lexiconOf = loaded.length;
@@ -1133,9 +1721,12 @@
 		   several words the others are the ones that are right, and mending
 		   them would answer a question nobody asked. */
 		function correct(q, cap) {
-			var ls = terms(q), ws = words(q), out = [], cut = null;
+			var ps = parse(q), out = [], cut = null;
+			var ls = ps.map(function (p) { return p.variants; });
+			var ws = ps.map(function (p) { return p.word; });
 			for (var i = 0; i < ws.length; i++) {
-				if (occurs(ws[i])) { out.push(ls[i]); continue; }
+				// A formula is never mended: a symbol has no misspelling.
+				if (!ws[i] || occurs(ws[i])) { out.push(ls[i]); continue; }
 				/* Measured from both spellings a query may have. Somebody who
 				   strips the diacritics by hand writes "srngara", the site
 				   writes `sringara`, and between those two nothing is
@@ -1183,7 +1774,8 @@
 
 		function render(q) {
 			results.textContent = '';
-			var searching = words(q).length > 0 && q.trim().length >= 2;
+			// One glyph is a query: `μ` asks for something, `m` does not.
+			var searching = parse(q).length > 0 && (q.trim().length >= 2 || GLYPH.test(q));
 
 			if (searching) sources.forEach(load);
 
@@ -1276,7 +1868,16 @@
 			   handles on what is in there (keyboard selection, say) has to be
 			   told each time, or it would be holding elements that no longer
 			   exist. */
+			typeset();
 			if (opts.onRender) opts.onRender();
+		}
+
+		// MathJax draws formulas after the fact, over what is in the list.
+		function typeset() {
+			var mj = global.MathJax;
+			if (!math || opts.math || global.katex || !mj || !results.querySelector('.math')) return;
+			if (mj.typesetPromise) mj.typesetPromise([results]).catch(function () {});
+			else if (mj.Hub) mj.Hub.Queue(['Typeset', mj.Hub, results]);
 		}
 
 		var timer;
@@ -1317,7 +1918,15 @@
 	   table would agree until the day somebody edited one of them, and the map
 	   would then quietly stop naming the chunks it should (node/two-tier.js).
 	   Hence one copy, in the file the browser loads anyway. */
-	global.SiteSearch = { mount: mount, fold: norm, say: SAY };
+	global.SiteSearch = {
+		mount: mount, fold: norm, say: SAY,
+		// The words a two-tier map lists for a text, and the symbols the
+		// helper offers (symbols.js): both are this file's tables.
+		vocabulary: vocabulary, symbols: SYMBOLS,
+		// For the checks (check-math.js): does this text answer this query.
+		answers: function (text, q) { var ts = terms(q); return ts.length > 0 && matches(record(text, false), ts); },
+		parse: parse,
+	};
 })(typeof globalThis !== 'undefined' ? globalThis : window);
 
 // Node reads this file for the fold alone; nothing above touches the document

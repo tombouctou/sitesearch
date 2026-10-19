@@ -12,10 +12,12 @@ stays with the site.
 |-----------------------------|---------------------------------------------------------|
 | `search.js`                 | the engine, dropped into a search page                  |
 | `palette.js`                | jump to a section by ⌘K, dropped into every page        |
+| `symbols.js`                | typing `\mu` or picking from a grid puts `μ` in the box |
 | `status.js`                 | reports the state of the indexes a site is serving      |
 | `check-fold.js`             | the two folds must agree: search.js against palette.js  |
 | `check-prepare.js`          | what `prepare` promises about the front door of a section |
 | `check-say.js`              | the words both files say, in every language they claim   |
+| `check-math.js`             | every spelling of a formula finds every other one, and the map never misses one |
 | `FORMAT.md`                 | the index contract: the border between builder and engine |
 | `node/html.js`              | builder for an HTML tree: a page into pieces of text    |
 | `node/write.js`             | writes an index, pre-compressed copy and all            |
@@ -69,6 +71,8 @@ for the site's stylesheet to say.
 | `address`      | `false` — leave the page's address alone: the search is not the page's own |
 | `more`         | `false` — no "показать ещё" control; the host has nowhere to put one     |
 | `onRender`     | called after every draw, for a host holding its own handles on the rows  |
+| `math`         | how a formula in a result is drawn: a function `(tex) → Node`, or `false` for its TeX; KaTeX or MathJax on the page are used unless told |
+| `symbols`      | `false` — no symbol helper on this field even where symbols.js is loaded |
 
 `mount` hands back `{ render, input, more }`. A page's own search ignores it and
 keeps working off the field; a host that is not a page — the palette's dropdown —
@@ -284,6 +288,7 @@ exclude:
   - sitesearch/check-fold.js
   - sitesearch/check-prepare.js
   - sitesearch/check-say.js
+  - sitesearch/check-math.js
   - sitesearch/node/
 ```
 
@@ -430,6 +435,80 @@ otherwise never see.
   are right.
 - The query lives in the address (`?q=`), so a link to a result set can be
   shared.
+
+## Formulas
+
+A site of physics or mathematics writes one formula many ways, and its readers
+type it in yet others: `\omega_g`, `ω_g`, `\omega_{g}`, Mathematica's
+`\[Omega]`, `e^+ e^- \to \mu^+ \mu^-` beside `e+e- → μ+μ-`. The search treats
+them as one.
+
+- **Both sides are folded to glyphs**, the text and the query alike: `\mu` and
+  `\[Mu]` become `μ`, `\to` and `->` `→`, `^{\mu}` is `^μ`, `x²` is `x^2`, `m₂`
+  is `m_2`. The table is in `search.js` (`SYMBOLS`) — Greek, the big operators,
+  relations and arrows. A bare name is not folded in the text: `omega` stays a
+  word, or `eta` would vanish from `beta`. Typed as a query, a bare Greek name
+  is offered its glyph as well — `alpha_s` finds `α_s`.
+- **A formula is what a text fences** — `$…$` by Pandoc's rules, so "$5 and
+  $10" stays money, `$$…$$`, `\(…\)`, `\[…\]` — **and also a run of words that
+  looks like one**: a word with a glyph, a TeX command, `^`, `_`, a brace, a
+  relation, or a minus that is not a hyphen, together with its neighbours and
+  a lone letter beside it. `GA[\[Mu]]` in code is one, `e+ e- → μ+ μ-` in a
+  sentence is one, `Klein-Gordon` is not. A query is read by exactly the same
+  rule.
+- **A formula is matched squeezed**: without spaces, carets, underscores,
+  braces, the commands that only say how it looks (`\left`, `\mathrm`, `\,`)
+  and accents (`\bar`, `\hat`, `\overline`). So `γ^μγ^ν` finds
+  `\bar{\gamma}^{\mu } \bar{\gamma}^{\nu}`, and `p_2` finds `\overline{p_2}`.
+  The price is that `x_2` and `x^2` are one formula here, and so are a barred γ
+  and a bare one. A search that answered only the exact spelling would answer
+  almost nothing.
+- **A formula in a result is drawn**, with KaTeX where the page has it and with
+  MathJax otherwise (`math` in `mount()`), and marked whole where the match
+  falls in it: half a fraction is not a formula, so the window over the text is
+  widened to hold it. Past 600 characters a formula is shown as its TeX, cut
+  like any other text.
+
+### Typing a symbol
+
+`symbols.js`, loaded after `search.js`, puts the helper on the search field by
+itself (`SiteSymbols.attach(input)` for any other field):
+
+```html
+<script src="/sitesearch/search.js"></script>
+<script src="/sitesearch/symbols.js"></script>
+```
+
+Type `\` and a few letters of a name — `\gam` — and a list of the symbols it
+begins appears; arrows walk it, Enter or Tab takes the symbol, Esc closes it.
+The Σ beside the field opens all of them as a grid, for the reader who knows
+the symbol by sight and not by name, with what they use most on a row of its
+own. What goes in is always the glyph: the box is a query, the fold finds the
+same text by either spelling, and only one of them is what the reader is
+looking at. The catalogue is the fold's own table, so the helper offers nothing
+the search has not heard of. Its colours follow the page's light or dark
+(`Canvas`/`CanvasText`), or `--sym-bg`, `--sym-fg`, `--sym-line`, `--sym-sel`.
+
+It is the helper of pm (SymbolInput, symbolPalette) on a page with no framework.
+
+### What a builder does about it
+
+`node/html.js` turns the formulas of a page into TeX between `\(…\)` and
+`\[…\]`, from whatever they came in: Pandoc's `<span class="math …">`, KaTeX
+already rendered (its `annotation` is the source), MathJax's
+`<script type="math/tex">`. Nothing else has to change. A Jekyll page keeps
+its `$…$` and kramdown's `\(…\)` as they are, and the engine reads them.
+
+In two tiers the map lists, besides words, every glyph as a word of its own
+and every pair of neighbours inside a formula (`$e+`, `$→μ`; FORMAT.md). On
+FeynCalc's manual that is 53 KB compressed on top of 75; a site without
+formulas pays nothing. A map built before this has neither, and a formula
+finds nothing in it until it is built again — which is no loss: a map of words
+alone could never answer `γ^5` or `e+` either.
+
+```sh
+node check-math.js
+```
 
 ## What language it says it in
 

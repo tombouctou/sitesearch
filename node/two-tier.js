@@ -38,17 +38,14 @@ const { writeIndex } = require('./write');
 const CHUNK = 32;
 
 /* The map is a list of words as the engine folds them, and a query is looked
-   up in it folded the same way. So the fold is not copied here but taken from
-   the engine itself: two tables would agree until one of them was edited, and
-   the map would then stop naming chunks it ought to name — a miss, which is
-   the one thing the map may never do (FORMAT.md). */
-const { fold: norm } = require('../search.js');
-
-// The same word boundary the engine matches on: a query term is found where a
-// word begins, so a word is a run of the letters and digits it may begin with.
-// After the fold there is no Cyrillic left in the text; the range stays all the
-// same, because what the engine tests and what is counted here must be one rule.
-const WORD = /[a-zа-я0-9]+/g;
+   up in it folded the same way. So neither the fold nor what counts as a word
+   is copied here: both are taken from the engine itself. Two tables would agree
+   until one of them was edited, and the map would then stop naming chunks it
+   ought to name — a miss, which is the one thing the map may never do
+   (FORMAT.md). A word is a run of letters and digits, a glyph of a formula
+   (`μ`, `→`) is a word of its own, and a letter inside a formula is listed once
+   more as `$e`; why, is in search.js above `vocabulary`. */
+const { vocabulary } = require('../search.js');
 
 function blocksOf(page) {
 	return (page.blocks || [])
@@ -137,10 +134,7 @@ function split(index, opts = {}) {
 			for (let i = from; i < to; i++) {
 				// The heading above a paragraph is matched together with it,
 				// so its words belong to the same chunk.
-				const text = norm((blocks[i].section || '') + ' ' + blocks[i].text);
-				let m;
-				WORD.lastIndex = 0;
-				while ((m = WORD.exec(text))) here.add(m[0]);
+				for (const w of vocabulary((blocks[i].section || '') + ' ' + blocks[i].text)) here.add(w);
 			}
 			const id = chunks.length;
 			chunks.push(blocks.slice(from, to));

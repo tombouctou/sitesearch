@@ -76,6 +76,20 @@ markup is the job of the builder, which holds the whole page; an engine that
 takes to stripping it has thereby learnt what the index was built from, and
 there is no contract left.
 
+**Except a formula**, which stays the TeX it was written in, between `\(…\)` or
+`\[…\]` (`$…$` by Pandoc's rules and `$$…$$` are read too):
+
+```json
+"The trace of \\(\\gamma^5\\) with four other matrices"
+```
+
+A formula has no bare text. Stripped of its markup it is `γ5` glued to the next
+word, or, out of rendered KaTeX, the same symbols three times over; and the
+TeX is what the engine both searches — folding `\gamma` and `γ` to one spelling
+— and draws a result from, with KaTeX or MathJax. The fences are the contract:
+the engine knows a formula by them and nothing else, and so does not have to
+know what the page was made of. `node/html.js` writes them.
+
 ## Neighbouring indexes
 
 `shards` names other indexes to be searched alongside this one. Each is
@@ -141,7 +155,7 @@ address; the chunks go into a directory beside it.
 | `text`     | where the chunks live, relative to the map's own address             |
 | `chunk`    | how many blocks travel together                                      |
 | `pages`    | as above, except that `blocks` is a **count**, not the blocks        |
-| `words`    | every word in the text, sorted, front-coded                          |
+| `words`    | every word in the text, sorted, front-coded — and the pieces of its formulas |
 | `postings` | for each word, the chunks holding it                                 |
 
 A page is otherwise described exactly as above, and `shards` means what it meant.
@@ -155,6 +169,16 @@ into Latin — because a query is looked up here folded, and a map written in so
 other alphabet would name no chunk at all. That is the one place where the
 builder is not free of the engine, and it is why `node/two-tier.js` takes the
 fold from `search.js` instead of keeping a copy of the table.
+
+A word is a run of letters and digits. Besides those the list holds every
+glyph of a formula as a word of its own (`μ`, `→`, `∂`), and every pair of
+neighbouring characters in a formula — the formula squeezed as the engine
+matches it, no spaces, carets, braces or accents — written with a `$` before
+it: `$e+`, `$+e`, `$→μ`. A formula is matched squeezed, `s u` answering `su`,
+so the runs of letters cannot name its chunks, and its letters one by one name
+nearly all of them; the pairs name the few that hold it. Which words a piece of
+text gives is not the builder's to work out: `SiteSearch.vocabulary(text)` in
+`search.js` says, and `node/two-tier.js` asks it.
 
 **`postings`** is one string, one line per word in the same order, each line the
 chunk numbers holding that word: ascending, as gaps, in base 36, comma

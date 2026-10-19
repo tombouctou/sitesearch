@@ -182,6 +182,7 @@ function check(file, table) {
 
 check('search.js', require(path.join(__dirname, 'search.js')).say);
 check('palette.js', require(path.join(__dirname, 'palette.js')).say);
+check('symbols.js', require(path.join(__dirname, 'symbols.js')).say);
 
 problems.forEach((p) => console.log(p));
 console.log('');
