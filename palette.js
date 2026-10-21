@@ -63,9 +63,32 @@
 	var WHOLE = /[\u2190-\u2aff]/;   // arrows and operators, left as they stand
 	var VOCALIC = { 'ṛ': 'ri', 'ṝ': 'ri', 'Ṛ': 'ri', 'Ṝ': 'ri' };
 
+	/* A number is one word however its digits are grouped. Russian and the
+	   SI write 1 202 and 10 494 201 (a space, a no-break space, a thin one or
+	   TeX's `\,`, which a formula already drops), the reader types 1202 — and
+	   a match by words saw `1` and `202` on one side and `1202` on the other.
+	   So a space between digit groups is dropped on both sides: a run of one
+	   to three digits followed by groups of exactly three. A leading run of
+	   four (`2026 202`, a year and a number) is not a group, and a comma is
+	   left alone: `149,150` is more often a list than a thousand. */
+	var GROUPED = /(^|[^\d])(\d{1,3}(?:[    ]\d{3})+)(?!\d)/g;
+
+	function groupGaps(s) {
+		if (!/\d[    ]\d/.test(s)) return null;
+		var gaps = {}, m;
+		GROUPED.lastIndex = 0;
+		while ((m = GROUPED.exec(s))) {
+			var at = m.index + m[1].length, run = m[2];
+			for (var k = 0; k < run.length; k++) if (!/\d/.test(run.charAt(k))) gaps[at + k] = true;
+			GROUPED.lastIndex = at + run.length;
+		}
+		return gaps;
+	}
+
 	function fold(s) {
-		var out = '', n = s.length;
+		var out = '', n = s.length, gaps = groupGaps(s);
 		for (var i = 0; i < n; i++) {
+			if (gaps && gaps[i]) continue;
 			var c = s.charAt(i).toLowerCase(), took = 1, piece;
 			if (VOCALIC[c] !== undefined) piece = VOCALIC[c];
 			else if (c === 'д' && s.charAt(i + 1).toLowerCase() === 'ж') { piece = 'j'; took = 2; }
