@@ -79,6 +79,18 @@ const CASES = [
 	['GA[\\[Mu], \\[Nu]]', 'GA[μ]', false],      // GA[μ, …] is not GA[μ]
 	['GA[\\[Mu], \\[Nu]]', 'GA[μ,ν]', true],
 	['Contract[FV[p, μ] FV[q, μ]]', 'FV[p, μ]', true],  // code is found as it is written
+
+	// A number, however its digits are grouped: by a space, a no-break or
+	// thin one, TeX's \, in a formula — or not at all.
+	['all 1 202 candidates', '1202', true],
+	['all 1202 candidates', '1 202', true],
+	['all 1\u00a0202 candidates', '1 202', true],
+	['SmallGroup(512, \\(10\\,494\\,201\\le i\\))', '10 494 201', true],
+	['SmallGroup(512, \\(10\\,494\\,201\\le i\\))', '10494201', true],
+	['the index 10\u2009494\u2009201', '10494201', true],
+	['$M=55\\,986$ columns', '55 986', true],
+	['in 2026 202 groups', '2026202', false],     // four digits are not a group
+	['orders 149,150 and 151', '149150', false],  // a comma is a list
 ];
 
 let bad = 0;
