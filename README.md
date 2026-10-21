@@ -109,6 +109,7 @@ wherever the palette was opened from.
 | `data-search-index` | the full index: a query the names miss goes to the text instead     |
 | `data-search-precompressed` | `"true"` — a `.br` sits beside it                           |
 | `data-engine`      | where search.js lives; defaults to next door to palette.js          |
+| `data-symbols`     | `"true"` — the symbol helper on the field (symbols.js, next door)    |
 | `data-placeholder` | what stands in the empty box                                        |
 | `data-label`       | what the button is called, in its hint and to a screen reader       |
 
@@ -490,6 +491,13 @@ the search has not heard of. Its colours follow the page's light or dark
 (`Canvas`/`CanvasText`), or `--sym-bg`, `--sym-fg`, `--sym-line`, `--sym-sel`.
 
 It is the helper of pm (SymbolInput, symbolPalette) on a page with no framework.
+
+The palette takes it too, on a site that asks (`data-symbols="true"`): a page
+of formulas is where a reader opens ⌘K and types `\gam`, and there the search
+page is a detour. It brings search.js and symbols.js on its first opening —
+the scripts, not the index, which is still fetched only when a query falls
+through to the text — and puts the Σ inside its own box. A site without
+formulas says nothing and gets no button.
 
 ### What a builder does about it
 

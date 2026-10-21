@@ -373,8 +373,12 @@
 			'#nav-box{max-width:34rem;margin:0 auto;background:var(--p-bg);color:var(--p-fg);',
 			'border:1px solid var(--p-line);border-radius:.5rem;overflow:hidden;',
 			'box-shadow:0 1.5rem 3rem rgba(0,0,0,.5)}',
-			'#nav-q{width:100%;box-sizing:border-box;border:0;border-bottom:1px solid var(--p-line);',
+			'#nav-row{display:flex;align-items:stretch;border-bottom:1px solid var(--p-line)}',
+			'#nav-q{flex:1;min-width:0;width:100%;box-sizing:border-box;border:0;',
 			'background:transparent;color:inherit;font:inherit;font-size:1.05rem;padding:.7em .9em;outline:none}',
+			'#nav-row .sym-open{all:unset;cursor:pointer;display:flex;align-items:center;padding:0 .9em;',
+			'font-size:1.1rem;opacity:.7}',
+			'#nav-row .sym-open:hover,#nav-row .sym-open:focus-visible{opacity:1}',
 			'#nav-list{list-style:none;margin:0;padding:.25rem;max-height:52vh;overflow-y:auto}',
 			'#nav-list li{padding:.4em .65em;border-radius:.35rem;cursor:pointer;display:flex;',
 			'gap:.6em;align-items:baseline}',
@@ -430,11 +434,11 @@
 		   offers "Enable Password AutoFill" on the first text field focused,
 		   whatever that field says of itself. That one is `unfilled` below. */
 		box.innerHTML =
-			'<div id="nav-box">' +
+			'<div id="nav-box"><div id="nav-row">' +
 			'<input id="nav-q" type="search" autocomplete="off" autocorrect="off" ' +
 			'autocapitalize="off" spellcheck="false" enterkeyhint="go" ' +
 			'data-1p-ignore="true" data-lpignore="true" data-bwignore="true" data-form-type="other" ' +
-			'role="combobox" aria-expanded="true" aria-controls="nav-list" />' +
+			'role="combobox" aria-expanded="true" aria-controls="nav-list" /></div>' +
 			'<ul id="nav-list" role="listbox"></ul>' +
 			'<p id="nav-note"></p></div>';
 		document.body.appendChild(box);
@@ -485,7 +489,7 @@
 	 * query from, and take the rows it draws back under the palette's own
 	 * keyboard.
 	 */
-	var engine = null, engineTried = false, feed = null, mode = null;
+	var engine = null, engineTried = false, feed = null, mode = null, waiting = [];
 
 	function bringEngine() {
 		if (engineTried) return;
@@ -495,7 +499,11 @@
 		var s = document.createElement('script');
 		s.src = conf.engine;
 		s.onload = function () {
-			if (global.SiteSearch) { startEngine(); if (mode === 'text') ask(input.value.trim()); }
+			if (global.SiteSearch) {
+				startEngine();
+				waiting.splice(0).forEach(function (f) { f(); });
+				if (mode === 'text') ask(input.value.trim());
+			}
 			else { engine = false; note(elsewhere(conf.say.none)); }
 		};
 		s.onerror = function () { engine = false; note(elsewhere(conf.say.none)); };
@@ -649,8 +657,39 @@
 		}
 	}
 
+	/* --- typing a symbol ----------------------------------------------------
+	 *
+	 * On a site of formulas the palette takes symbols.js's helper as the search
+	 * page does: `\gam` offers γ and Γ, the Σ beside the field opens them all.
+	 * A site says so (`symbols`); one without formulas would only get a button
+	 * nobody needs. The helper reads its catalogue from the engine's fold, so
+	 * search.js comes first — the script, not the index: the heavy file is still
+	 * fetched only when a query falls through to the text. Both are fetched on
+	 * the first opening of the palette, never with the page.
+	 */
+	var symbolsTried = false;
+
+	function bringSymbols() {
+		if (symbolsTried || !conf.symbols) return;
+		symbolsTried = true;
+		var attach = function () {
+			if (!global.SiteSymbols) return;
+			global.SiteSymbols.attach(input, { lang: conf.lang });
+		};
+		var then = function () {
+			if (global.SiteSymbols) { attach(); return; }
+			var s = document.createElement('script');
+			s.src = conf.symbols;
+			s.onload = attach;
+			document.head.appendChild(s);
+		};
+		if (global.SiteSearch) then();
+		else { waiting.push(then); bringEngine(); }
+	}
+
 	function open() {
 		if (!box) build();
+		bringSymbols();
 		opener = document.activeElement;
 		box.classList.add('on');
 		input.value = '';
@@ -672,6 +711,7 @@
 		// from `body` (a mouse click does not focus the button, and the
 		// shortcut is caught on the document), and then the place for it is the
 		// button, which is the door to the palette.
+		if (input && input.symbols) { input.symbols.close(); input.symbols.shut(true); }
 		if (input) input.blur();
 		var back = opener && opener.focus && opener !== document.body ? opener : trigger;
 		if (back && back.focus) back.focus();
@@ -761,7 +801,9 @@
 	 * that it is not this one — this one is the heavy file, and it is fetched
 	 * only when a reader has actually asked for something the names do not
 	 * hold. `searchPrecompressed` says a `.br` sits beside it; `engine` is
-	 * where search.js lives, and defaults to next door to this file. */
+	 * where search.js lives, and defaults to next door to this file.
+	 * `symbols` puts symbols.js's helper on the field (`true`: next door to
+	 * search.js, or its address); for a site of formulas. */
 	function mount(opts) {
 		if (conf) return;                       // one palette to a page
 		// The page already declares its language, for the browser and for
@@ -778,6 +820,8 @@
 			searchIndex: opts.searchIndex || null,
 			searchPrecompressed: !!opts.searchPrecompressed,
 			engine: opts.engine || null,
+			symbols: opts.symbols === true && opts.engine ? opts.engine.replace(/[^/]*$/, 'symbols.js')
+				: (typeof opts.symbols === 'string' ? opts.symbols : null),
 			lang: lang,
 			say: say_,
 			label: opts.label || say_.label,
@@ -819,6 +863,8 @@
 				searchIndex: d.searchIndex,
 				searchPrecompressed: d.searchPrecompressed === 'true',
 				engine: d.engine || (here ? here.replace(/[^/]*$/, 'search.js') : null),
+				symbols: d.symbols === 'true' ? (here ? here.replace(/[^/]*$/, 'symbols.js') : null)
+					: (d.symbols && d.symbols !== 'false' ? d.symbols : null),
 				label: d.label, placeholder: d.placeholder
 			});
 		}
